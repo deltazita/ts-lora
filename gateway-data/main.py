@@ -1,3 +1,8 @@
+# TS-LoRa (gateway-data side)
+# author: Dimitris Zorbas (dimzorbas@ieee.org)
+#
+# Distributed under GNU GPLv3
+
 import socket
 import struct
 from network import LoRa

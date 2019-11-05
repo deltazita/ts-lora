@@ -1,3 +1,8 @@
+# TS-LoRa (node side)
+# author: Dimitris Zorbas (dimzorbas@ieee.org)
+#
+# Distributed under GNU GPLv3
+
 import os
 import sys
 import socket
