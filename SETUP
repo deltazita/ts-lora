@@ -18,11 +18,11 @@ Recommended setup:
 - The Raspberry Pi (RPi) serves as Access Point and DHCP server. You can follow the instructions here [1].
 - According to the current git code, the RPi must have an IP of 192.168.0.254/24 (you can change the IPs according to your needs).
 - Edit the RPi configuration files so that gw_req and gw_data are always assigned with an IP of .1/24 and .2/24 respectively. To do this, you will need the wifi mac address of the Pycom nodes. You can add multiple 1-channel gw_data gateways assigned with a different SF (LoRa) and IP address (wifi).
-- Flash the corresponding code into the gateways and nodes. Remember to use a different node ID for each node (i.e., MY_ID).
+- Flash the corresponding code into the gateways and nodes. Remember to use a different node ID for each node (i.e., MY_ID). Ids from 11 to 35 are currently expected. You can change this according to your needs.
 - Run the TCP server on the RPi.
 - Power-up the gateways. Be sure that the LEDs turn green and blue. It would be helpful to have the gateways connected to a computer so you can see their standard output.
 - Power-up at least one node.
-- (Optional) You can add a separate gateway for statistics (gw_stats). See node code for details.
+- (Optional) You can add a separate gateway for statistics (gw_stats). Alternatively, you can save statistics in a SD card. See node code for details.
 
 Enjoy!
 
