@@ -11,9 +11,10 @@ Features:
 - 1% radio duty cycle
 - Multiple SFs/BWs
 - A simple registration mechanism (similar to LoRaWAN OTAA) including the generation of AppSKeys
+- Statistics per node
 
 Limitations / Work in progress:
-- Two 1-channel gateways must currently be used. 
+- Two or more 1-channel gateways must currently be used. 
 - No data encryption is currently performed. The keys are calculated but I don't encrypt/decrypt data for testing purposes. 
 - A 98-byte data packet consisting of 98 1's is currently sent for testing purposes. 
 - Python's pack and unpack struct functions are currently used to send data. 
