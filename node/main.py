@@ -179,7 +179,12 @@ lora_sock = socket.socket(socket.AF_LORA, socket.SOCK_RAW)
 lora_sock.setblocking(False)
 
 random_sleep(5)
+chrono = Timer.Chrono()
+chrono.start()
+join_start = chrono.read_ms()
+# f = open('/sd/stats.txt', 'w')
 active = 0.0
+join_request(my_sf)
 repeats = 0
 msg = "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111" # just a 98-byte message
 airt = math.ceil(airtime[my_sf-7][my_bw_index]*1000)
@@ -189,11 +194,6 @@ init_sync_slot = sync_slot
 clock_correct = 0
 print("airtime:", airt, "/ d.c. slots:", duty_cycle_limit_slots)
 print("SACK slot length:", sync_slot)
-chrono = Timer.Chrono()
-chrono.start()
-join_start = chrono.read_ms()
-# f = open('/sd/stats.txt', 'w')
-join_request(my_sf)
 
 # send data
 i = 1
@@ -268,9 +268,9 @@ while(i <= 1500): # stop after 1500 packets
                     sync_slot = init_sync_slot
                     rec = 1
                     clock_correct = 0
-                    if (int(chrono.read_ms()-sync_start) <= sync_slot/2): # resolve the bug
+                    if (int(chrono.read_ms()-sync_start) <= sync_slot/3): # resolve the bug
                         print("warning! very short SACK length", int(chrono.read_ms()-sync_start))
-                        clock_correct = -150
+                        clock_correct = -150 # this must be tuned on
                     if (int(chrono.read_ms()-sync_start) > sync_slot) and (clock_correct == 0):
                         clock_correct = int(chrono.read_ms()-sync_start) - sync_slot
         if (rec == 0):
