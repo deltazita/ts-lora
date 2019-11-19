@@ -50,7 +50,7 @@ def receive_req():
     global JoinNonce
     registered = []
     while (True):
-        recv_pkg = lora_sock.recv(100)
+        recv_pkg = lora_sock.recv(200)
         if (len(recv_pkg) > 2):
             recv_pkg_len = recv_pkg[1]
             recv_pkg_id = recv_pkg[0]
@@ -81,36 +81,41 @@ def receive_req():
                         index[req_sf] += 1
                         registered.append([int(dev_id), slot])
                     JoinNonce[int(dev_id)] += 1
-                    # send/receive data to/from Raspberry Pi
-                    wlan_s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    wlan_s.connect(('192.168.0.254', 8000))
-                    wlan_s.send(str(dev_id)+":"+str(slot)+":"+mac+":"+str(JoinNonce[int(dev_id)])+":"+JoinEUI+":"+str(DevNonce))
-                    msg = wlan_s.recv(512)
-                    msg = str(msg)[2:]
-                    msg = msg[:-1]
                     try:
-                        (rdev_id, DevAddr, AppSkey) = msg.split(":")
+                        # send/receive data to/from Raspberry Pi
+                        wlan_s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        wlan_s.connect(('192.168.0.254', 8000))
                     except:
-                        print("wrong RPi packet format!", msg)
+                        print("Connection to RPi failed!")
                         wlan_s.close()
                     else:
-                        # send registered node info to the data gateway
-                        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                        s.connect(('192.168.0.'+str(req_sf-5), 8000))
+                        wlan_s.send(str(dev_id)+":"+str(slot)+":"+mac+":"+str(JoinNonce[int(dev_id)])+":"+JoinEUI+":"+str(DevNonce))
+                        msg = wlan_s.recv(512)
+                        msg = str(msg)[2:]
+                        msg = msg[:-1]
                         try:
-                            s.send(str(dev_id)+":"+str(slot)+":"+AppSkey)
-                        except OSError as e:
-                            pycom.rgbled(red)
-                            if e.args[0] != uerrno.EINPROGRESS:
-                                raise
+                            (rdev_id, DevAddr, AppSkey) = msg.split(":")
+                        except:
+                            print("wrong RPi packet format!", msg)
+                            wlan_s.close()
                         else:
-                            # send DevAddr and JoinNonce to the node
-                            msg = str(dev_id)+":"+str(DevAddr)+":"+str(JoinNonce[int(dev_id)])
-                            print(msg, str(slot))
-                            lora.init(mode=LoRa.LORA, tx_iq=True, region=LoRa.EU868, frequency=freqs[1], power_mode=LoRa.TX_ONLY, bandwidth=LoRa.BW_125KHZ, sf=12, tx_power=7)
-                            pkg = struct.pack(_LORA_PKG_FORMAT % len(msg), MY_ID, len(msg), msg)
-                            lora_sock.send(pkg) # I should encrypt that using node's AppKey
-                            lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[0], power_mode=LoRa.ALWAYS_ON, bandwidth=LoRa.BW_125KHZ, sf=12)
+                            # send registered node info to the data gateway
+                            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                            s.connect(('192.168.0.'+str(req_sf-5), 8000))
+                            try:
+                                s.send(str(dev_id)+":"+str(slot)+":"+AppSkey)
+                            except OSError as e:
+                                pycom.rgbled(red)
+                                if e.args[0] != uerrno.EINPROGRESS:
+                                    raise
+                            else:
+                                # send DevAddr and JoinNonce to the node
+                                msg = str(dev_id)+":"+str(DevAddr)+":"+str(JoinNonce[int(dev_id)])
+                                print(msg, str(slot))
+                                lora.init(mode=LoRa.LORA, tx_iq=True, region=LoRa.EU868, frequency=freqs[1], power_mode=LoRa.TX_ONLY, bandwidth=LoRa.BW_125KHZ, sf=12, tx_power=7)
+                                pkg = struct.pack(_LORA_PKG_FORMAT % len(msg), MY_ID, len(msg), msg)
+                                lora_sock.send(pkg) # I should encrypt that using node's AppKey
+                                lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[0], power_mode=LoRa.ALWAYS_ON, bandwidth=LoRa.BW_125KHZ, sf=12)
 
 # wait for requests
 for i in range(7,13):
