@@ -16,7 +16,7 @@ Features:
 Limitations / Work in progress:
 - Two or more 1-channel gateways must currently be used. 
 - No data encryption is currently performed. The keys are calculated but I don't encrypt/decrypt data for testing purposes. 
-- ~~A 98-byte data packet consisting of 98 1's is currently sent for testing purposes. ~~
+- ~~A 98-byte data packet consisting of 98 1's is currently sent for testing purposes.~~
 - Python's pack and unpack struct functions are currently used to send data. 
 - Sleep mode is not currently implemented.
 
