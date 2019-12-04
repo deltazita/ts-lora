@@ -144,7 +144,7 @@ def receive_data():
                 if (int(recv_pkg_id) <= 35) and (int(recv_pkg_len) == 98):
                     dev_id, leng, msg = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
                     # print('Device: %d - Pkg:  %s' % (dev_id, msg))
-                    if (str(msg) == "b'11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111'"): # format check
+                    if (len(msg) == 98): # format check
                         received += 1
                         print('Received from: %d' % dev_id)
                         acks.append(str(int(dev_id)))
@@ -166,13 +166,13 @@ def receive_data():
         if (i % sync_rate == 0): # SACK
             sync_start = chrono.read_ms()
             pycom.rgbled(white)
-            time.sleep_ms(3*guard) # let's make it long so all the nodes are up
+            time.sleep_ms(guard) # let's make it long so all the nodes are up
             lora.init(mode=LoRa.LORA, tx_iq=True, frequency=freqs[my_sf-5], region=LoRa.EU868, power_mode=LoRa.ALWAYS_ON, bandwidth=my_bw, sf=my_sf, tx_power=14)
             data = str(index+1)+":"+str(guard)+":"+ack_msg
             pkg = struct.pack(_LORA_PKG_FORMAT % len(data), MY_ID, len(data), data)
             lora_sock.send(pkg)
             print("Sent sync: "+data)
-            time.sleep_ms(math.ceil(airtime_calc(my_sf,1,len(data),my_bw_plain))+5)
+            time.sleep_ms(math.ceil(airtime_calc(my_sf,1,len(data),my_bw_plain))+15) # wait until the nodes get and process the packet
             print("sync lasted:", abs(time.ticks_diff(int(chrono.read_ms()), int(sync_start))), "ms")
         finish = chrono.read_ms()
         print("round lasted:", abs(time.ticks_diff(int(finish), int(round_start))), "ms")
