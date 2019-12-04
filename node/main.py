@@ -289,14 +289,15 @@ while(i <= 1500): # stop after 1500 packets
                     sync_slot = init_sync_slot
                     rec = 1
                     clock_correct = 0
-                    if (int(chrono.read_us()-sync_start) <= sync_slot/3): # the clock gets crazy sometimes
+                    if (int(chrono.read_us()-sync_start) < sync_slot/2): # the clock gets crazy sometimes
                         print("warning! very short SACK length (ms):", (chrono.read_us()-sync_start)/1000)
                         clock_correct = -(sync_slot - int(chrono.read_us()-sync_start) + 30000) # this must be tuned on
                     if (int(chrono.read_us()-sync_start) > sync_slot) and (clock_correct == 0):
                         clock_correct = int(chrono.read_us()-sync_start) - sync_slot
         if (rec == 0):
             if (sync_slot == init_sync_slot):
-                clock_correct = init_sync_slot/4
+                clock_correct = -init_sync_slot/3
+                # clock_correct = -50000
             print("I will repeat the last packet")
             retrans += 1
             repeats += 1
