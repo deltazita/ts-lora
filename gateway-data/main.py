@@ -26,15 +26,13 @@ _LORA_PKG_FORMAT = "!BB%ds"
 _LORA_RCV_PKG_FORMAT = "!BB%ds"
 MY_ID = 0x02
 my_sf = int(MY_ID) + 5
-(guard, sync_rate) = (15, 1)
+(guard, sync_rate, prc) = (15, 1, 10)
 freqs = [869700000, 869850000, 865000000, 865600000, 866200000, 866800000, 867400000, 868000000] # 2x125, 6x500
 # airtimes for 100bytes + 8 symbol preamble
 airtime = [[0.174336, 0.087168, 0.043584], [0.307712, 0.153856, 0.076928], [0.553984, 0.276992, 0.138496], [1.026048, 0.513024, 0.256512], [2.215936, 0.944128, 0.472064], [3.940352, 1.724416, 0.862208]]
 index = 0
 slot = {}
 KEY = {}
-pkt_rx = {}
-pkt_tx = {}
 my_bw_index = 0
 if (my_bw_index == 0):
     my_bw = LoRa.BW_125KHZ
@@ -74,8 +72,6 @@ def airtime_calc(sf,cr,pl,bw):
 def update_index():
     global index
     global slot
-    global pkt_tx
-    global pkt_rx
     global KEY
     host = '192.168.0.'+str(int(MY_ID))
     port = 8000
@@ -95,8 +91,6 @@ def update_index():
             nslot = int(nslot)
             if (id not in KEY):
                 slot[nslot] = id
-                pkt_tx[id] = 0
-                pkt_rx[id] = 0
                 print('slot %d to %d' % (nslot, id))
             else:
                 print('node %d rejoined (slot %d)' % (id, nslot))
@@ -106,37 +100,39 @@ def update_index():
     wlan_s.close()
 
 def receive_data():
+    global index
+    global guard
+    global slot
+    global prc
     lora = LoRa(mode=LoRa.LORA, rx_iq=True, frequency=freqs[my_sf-5], region=LoRa.EU868, power_mode=LoRa.ALWAYS_ON, bandwidth=my_bw, sf=my_sf)
     lora_sock = socket.socket(socket.AF_LORA, socket.SOCK_RAW)
     lora_sock.setblocking(False)
+    guard = 1000*guard
     (overall_received, overall_sent) = (0, 0)
-    airt = math.ceil((airtime[my_sf-7][my_bw_index])*1000)
+    airt = math.ceil((airtime[my_sf-7][my_bw_index])*1e6)
     duty_cycle_limit_slots = math.ceil(100*airt/(airt + 2*guard))
-    print("duty cycle slots:", duty_cycle_limit_slots, "/ packet airtime:", airt)
+    print("duty cycle slots:", duty_cycle_limit_slots)
+    print("packet airtime (ms):", airt/1000)
+    print("guard time (ms):", guard/1000)
     chrono = Timer.Chrono()
     chrono.start()
-    start = chrono.read_ms()
-    finish = start
-    global index
-    global slot
-    global pkt_tx
-    global pkt_rx
     i = 1
     while(True):
-        pycom.rgbled(red)
+        print(i, "----------------------------------------------------")
+        print("Net size is:", index+1)
+        chrono.reset()
+        round_start = chrono.read_us()
+        pycom.rgbled(off)
         received = 0
         acks = []
-        round_start = chrono.read_ms()
         if (int(index) > duty_cycle_limit_slots):
             round_length = math.ceil(int(index)*(airt + 2*guard))
         else:
             round_length = math.ceil(duty_cycle_limit_slots*(airt + 2*guard))
-        print(i, "----------------------------------------------------")
-        print("round length:", round_length)
-        # print("started new round at:", round_start)
-        lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[my_sf-5], power_mode=LoRa.ALWAYS_ON, bandwidth=my_bw, sf=my_sf)
-        # print("started receiving at:", chrono.read_ms())
-        while ((chrono.read_ms() - round_start) < (round_length)):
+        # round_length += 1000 # add 10ms to balance with the nodes SACK processing time
+        # lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[my_sf-5], power_mode=LoRa.ALWAYS_ON, bandwidth=my_bw, sf=my_sf)
+        # print("started receiving at (ms):", chrono.read_ms())
+        while ((chrono.read_us() - round_start) < round_length):
             recv_pkg = lora_sock.recv(8192)
             if (len(recv_pkg) > 2):
                 recv_pkg_len = recv_pkg[1]
@@ -149,34 +145,33 @@ def receive_data():
                         print('Received from: %d' % dev_id)
                         acks.append(str(int(dev_id)))
         print(received, "packets received")
+        proc_t = chrono.read_us()
         ack_msg = ""
         for n in range(int(index)+1):
             if n in slot:
                 id = str(slot[n])
                 if id in acks:
                     ack_msg = ack_msg+"1"
-                    pkt_rx[int(id)] += 1
                 else:
                     ack_msg = ack_msg+"0"
-                if (pkt_rx[int(id)] > 0):
-                    pkt_tx[int(id)] += 1
-                    print('PDR for %s = %f' % (id, pkt_rx[int(id)]/pkt_tx[int(id)]))
         if (ack_msg != ""):
             ack_msg = str(hex(int(ack_msg, 2)))[2:]
+        print("proc time (ms):", chrono.read_us()-proc_t)
         if (i % sync_rate == 0): # SACK
-            sync_start = chrono.read_ms()
+            sync_start = chrono.read_us()
             pycom.rgbled(white)
-            time.sleep_ms(guard) # let's make it long so all the nodes are up
+            time.sleep_us(int(guard*3/2)) # let's make it long so all the nodes are up
             lora.init(mode=LoRa.LORA, tx_iq=True, frequency=freqs[my_sf-5], region=LoRa.EU868, power_mode=LoRa.ALWAYS_ON, bandwidth=my_bw, sf=my_sf, tx_power=14)
-            data = str(index+1)+":"+str(guard)+":"+ack_msg
+            data = str(index+1)+":"+str(int(guard/1000))+":"+ack_msg
             pkg = struct.pack(_LORA_PKG_FORMAT % len(data), MY_ID, len(data), data)
+            pycom.rgbled(red)
             lora_sock.send(pkg)
             print("Sent sync: "+data)
-            time.sleep_ms(math.ceil(airtime_calc(my_sf,1,len(data),my_bw_plain))+15) # wait until the nodes get and process the packet
-            print("sync lasted:", abs(time.ticks_diff(int(chrono.read_ms()), int(sync_start))), "ms")
-        finish = chrono.read_ms()
-        print("round lasted:", abs(time.ticks_diff(int(finish), int(round_start))), "ms")
-        print("Net size is:", index+1)
+            lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[my_sf-5], power_mode=LoRa.ALWAYS_ON, bandwidth=my_bw, sf=my_sf)
+            time.sleep_ms(math.ceil(airtime_calc(my_sf,1,len(data),my_bw_plain))) # wait until the nodes get the packet
+            print("sync lasted (ms):", (chrono.read_us()-sync_start)/1000)
+        print("round lasted (ms):", (chrono.read_us()-round_start)/1000)
+        print("should last (ms):", round_length/1000)
         i += 1
 
 _thread.start_new_thread(update_index, ())
