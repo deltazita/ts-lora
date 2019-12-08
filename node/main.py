@@ -307,11 +307,11 @@ while(i <= 1500): # stop after 1500 packets
                         print("new sync slot length (ms):", sync_slot/1000)
         if (rec == 0):
             if (clock_correct == 0):
-                clock_correct = -25000
-            elif (clock_correct < 0):
-                clock_correct = 25000
-            else:
-                clock_correct = 0
+                clock_correct = -guard
+            # elif (clock_correct < 0):
+            #     clock_correct = 25000
+            # else:
+            #     clock_correct = 0
             print("I will repeat the last packet")
             retrans += 1
             repeats += 1
@@ -322,6 +322,7 @@ while(i <= 1500): # stop after 1500 packets
                 repeats = 0
                 dropped += 1
                 retrans -= 1
+                clock_correct = 0
                 i += 1
                 join_request(my_sf)
         print("sync slot lasted (ms):", (chrono.read_us()-sync_start)/1000)
