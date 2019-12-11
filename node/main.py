@@ -41,7 +41,8 @@ def join_request(_sf):
     global DevEUI
     global index
     global lora_sock
-    global active
+    global active_tx
+    global active_rx
     global chrono
     global my_slot
     global guard
@@ -54,11 +55,13 @@ def join_request(_sf):
     while (i == 0):
         pycom.rgbled(blue)
         lora.init(mode=LoRa.LORA, tx_iq=True, region=LoRa.EU868, frequency=freqs[0], power_mode=LoRa.TX_ONLY, bandwidth=LoRa.BW_125KHZ, sf=12, tx_power=7)
+        start = chrono.read_ms()
         lora_sock.send(pkg)
+        active_tx += chrono.read_ms()-start
         print("Request sent!", pkg)
         lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[1], power_mode=LoRa.ALWAYS_ON, bandwidth=LoRa.BW_125KHZ, sf=12)
         start = chrono.read_ms()
-        while ((chrono.read_ms() - start) < 4000):
+        while ((chrono.read_ms() - start) < 5000):
             pycom.rgbled(green)
             recv_pkg = lora_sock.recv(50)
             if (len(recv_pkg) > 2):
@@ -74,10 +77,12 @@ def join_request(_sf):
                         start = -10000
                         pycom.rgbled(blue)
                         lora.power_mode(LoRa.SLEEP)
+                        active_rx += chrono.read_ms()-start
                         i = 1
                         break
         if (i == 0):
             lora.power_mode(LoRa.SLEEP)
+            active_rx += chrono.read_ms()-start
             random_sleep(5)
             DevNonce += 1
 
@@ -113,15 +118,15 @@ def join_request(_sf):
                 s_msg = s_msg[:-1]
                 (index, guard, acks) = s_msg.split(":")
                 (index, guard) = (int(index), int(guard)*1000)
-                print("sync received!")
+                print("ACK!")
                 # pycom.rgbled(blue)
                 lora.power_mode(LoRa.SLEEP)
-                active += (chrono.read_ms() - sync_start)
+                active_rx += (chrono.read_ms() - sync_start)
                 time.sleep_ms(10)
                 break
-    print("time after SACK rec:", int(chrono.read_ms()-sack_rcv), "ms")
-    print("sync slot lasted:", int(chrono.read_ms()-sync_start), "ms")
-    print("joining the network lasted:", int(chrono.read_ms()-join_start), "ms")
+    print("time after SACK rec (ms):", chrono.read_ms()-sack_rcv)
+    print("sync slot lasted (ms):", chrono.read_ms()-sync_start)
+    print("joining the network lasted (ms):", chrono.read_ms()-join_start)
 
 def generate_msg():
     global msg
@@ -144,7 +149,7 @@ server.deinit()
 
 _LORA_PKG_FORMAT = "!BB%ds"
 _LORA_RCV_PKG_FORMAT = "!BB%ds"
-MY_ID = 0x1A
+MY_ID = 0x1E
 (my_sf, my_bw_index, guard, sync_rate, my_slot) = (7, 0, 15, 1, 0) # default values
 index = 0
 S = 1000
@@ -193,7 +198,8 @@ chrono = Timer.Chrono()
 chrono.start()
 join_start = chrono.read_us()
 # f = open('/sd/stats.txt', 'w')
-active = 0.0
+active_rx = 0.0
+active_tx = 0.0
 join_request(my_sf)
 repeats = 0
 if (guard < 10000): # no guard bellow 10ms is allowed
@@ -213,6 +219,7 @@ print("SACK slot length (ms):", sync_slot/1000)
 
 # send data
 i = 1
+sack_rcv = 0.0
 print("S T A R T")
 while(i <= 1500): # stop after 1500 packets
     print(i, "----------------------------------------------------")
@@ -224,7 +231,7 @@ while(i <= 1500): # stop after 1500 packets
         round_length = math.ceil(int(index)*(airt + 2*guard))
     else:
         round_length = math.ceil(duty_cycle_limit_slots*(airt + 2*guard))
-    round_length += 27500 # gw proc+switch time (us)
+    round_length += 17500 # gw proc+switch time (us)
     t = int(my_slot*(airt + 2*guard) + guard - proc_and_switch) # sleep time before transmission
     print("sleep time (ms):", t/1000)
     machine.idle()
@@ -239,7 +246,7 @@ while(i <= 1500): # stop after 1500 packets
     # print(lora.stats())
     pycom.rgbled(off)
     lora.power_mode(LoRa.SLEEP)
-    active += (chrono.read_us() - on_time)
+    active_tx += (chrono.read_us() - on_time)
     t = round_length - int(chrono.read_us() - start) - int(clock_correct)
     print("sleep time after data (ms):", t/1000, "/ clock correction (ms):", clock_correct/1000)
     machine.idle()
@@ -247,9 +254,9 @@ while(i <= 1500): # stop after 1500 packets
     if (i % sync_rate == 0): # SACK
         rec = 0
         acks = ""
+        lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[my_sf-5], power_mode=LoRa.ALWAYS_ON, bandwidth=my_bw, sf=my_sf)
         sync_start = chrono.read_us()
         print("started sync slot at:", sync_start/1000)
-        lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[my_sf-5], power_mode=LoRa.ALWAYS_ON, bandwidth=my_bw, sf=my_sf)
         while (rec == 0) and ((chrono.read_us() - sync_start) <= sync_slot):
             machine.idle()
             recv_pkg = lora_sock.recv(30)
@@ -267,7 +274,7 @@ while(i <= 1500): # stop after 1500 packets
                     print("SACK received!", s_msg)
                     print(lora.stats())
                     lora.power_mode(LoRa.SLEEP)
-                    active += (chrono.read_us() - sync_start)
+                    active_rx += (chrono.read_us() - sync_start)
                     if (acks != ""):
                         acks = zfill(bin(int(acks, 16))[2:], index)
                         if (acks[my_slot] == "1"):
@@ -289,14 +296,14 @@ while(i <= 1500): # stop after 1500 packets
                     rec = 1
                     clock_correct = 0
                     ack_lasted = (chrono.read_us()-sync_start)
-                    if (ack_lasted > sync_slot*1.5): # sometimes the clock gets crazy
+                    if (ack_lasted > sync_slot*1.5): # sometimes the ack takes more time than it should
                         clock_correct = int(chrono.read_us()-sync_start) - sync_slot
-                    if (ack_lasted < sync_slot/3):
+                    elif (ack_lasted < sync_slot/3): # normally this should't happen
                         print("warning! very short SACK length (ms):", (chrono.read_us()-sync_start)/1000)
                         clock_correct = (sync_slot - int(chrono.read_us()-sync_start) + 20000) # this must be tuned on
                         time.sleep_us(clock_correct)
                         clock_correct = 0
-                    else:
+                    else: # adaptive SACK slot length
                         clocks.append(ack_lasted)
                         sync_slot = 0
                         for j in clocks:
@@ -308,10 +315,8 @@ while(i <= 1500): # stop after 1500 packets
         if (rec == 0):
             if (clock_correct == 0):
                 clock_correct = -guard
-            # elif (clock_correct < 0):
-            #     clock_correct = 25000
-            # else:
-            #     clock_correct = 0
+            elif (clock_correct == -guard):
+                clock_correct = 0
             print("I will repeat the last packet")
             retrans += 1
             repeats += 1
@@ -330,7 +335,7 @@ while(i <= 1500): # stop after 1500 packets
         print("transmitted/delivered/retransmitted/dropped:", i, succeeded, retrans, dropped)
         # f.write('transmitted/delivered/retransmitted: %d / %d / %d\n' % (i, succeeded, retrans))
     print("round lasted (ms):", (chrono.read_us()-start)/1000)
-    print("Current active time (s):", active/1e6)
+    print("radio active time (rx/tx) (s):", active_rx/1e6, "/", active_tx/1e6)
     i += 1
 # f = open('/sd/stats.txt', 'w')
 # f.write('Total packets transmitted: %d\n' % i)

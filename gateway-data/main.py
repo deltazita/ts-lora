@@ -129,11 +129,9 @@ def receive_data():
             round_length = math.ceil(int(index)*(airt + 2*guard))
         else:
             round_length = math.ceil(duty_cycle_limit_slots*(airt + 2*guard))
-        # round_length += 1000 # add 10ms to balance with the nodes SACK processing time
-        # lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[my_sf-5], power_mode=LoRa.ALWAYS_ON, bandwidth=my_bw, sf=my_sf)
-        # print("started receiving at (ms):", chrono.read_ms())
-        while ((chrono.read_us() - round_start) < round_length):
-            recv_pkg = lora_sock.recv(8192)
+        rec_start = chrono.read_us()
+        while ((chrono.read_us() - round_start) < round_length-66000): # the following line may take up to 66ms
+            recv_pkg = lora_sock.recv(256)
             if (len(recv_pkg) > 2):
                 recv_pkg_len = recv_pkg[1]
                 recv_pkg_id = recv_pkg[0]
@@ -145,6 +143,12 @@ def receive_data():
                         print('Received from: %d' % dev_id)
                         acks.append(str(int(dev_id)))
         print(received, "packets received")
+        rec_lasted = chrono.read_us()-rec_start
+        if (rec_lasted < round_length):
+            print("I'll sleep a bit to align with the round length")
+            time.sleep_us(int(round_length-rec_lasted))
+        print("Receiving lasted (ms):", (chrono.read_us()-rec_start)/1000)
+        print("...should last (ms):", round_length/1000)
         proc_t = chrono.read_us()
         ack_msg = ""
         for n in range(int(index)+1):
@@ -156,7 +160,7 @@ def receive_data():
                     ack_msg = ack_msg+"0"
         if (ack_msg != ""):
             ack_msg = str(hex(int(ack_msg, 2)))[2:]
-        print("proc time (ms):", chrono.read_us()-proc_t)
+        print("proc time (ms):", (chrono.read_us()-proc_t)/1000)
         if (i % sync_rate == 0): # SACK
             sync_start = chrono.read_us()
             pycom.rgbled(white)
@@ -171,7 +175,6 @@ def receive_data():
             time.sleep_ms(math.ceil(airtime_calc(my_sf,1,len(data),my_bw_plain))) # wait until the nodes get the packet
             print("sync lasted (ms):", (chrono.read_us()-sync_start)/1000)
         print("round lasted (ms):", (chrono.read_us()-round_start)/1000)
-        print("should last (ms):", round_length/1000)
         i += 1
 
 _thread.start_new_thread(update_index, ())
