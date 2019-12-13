@@ -149,7 +149,7 @@ server.deinit()
 
 _LORA_PKG_FORMAT = "!BB%ds"
 _LORA_RCV_PKG_FORMAT = "!BB%ds"
-MY_ID = 0x1E
+MY_ID = 0x1A
 (my_sf, my_bw_index, guard, sync_rate, my_slot) = (7, 0, 15, 1, 0) # default values
 index = 0
 S = 1000
@@ -253,6 +253,7 @@ while(i <= 1500): # stop after 1500 packets
     time.sleep_us(t)
     if (i % sync_rate == 0): # SACK
         rec = 0
+        clock_correct = 0
         acks = ""
         lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[my_sf-5], power_mode=LoRa.ALWAYS_ON, bandwidth=my_bw, sf=my_sf)
         sync_start = chrono.read_us()
@@ -294,15 +295,13 @@ while(i <= 1500): # stop after 1500 packets
                                 i += 1
                     machine.idle()
                     rec = 1
-                    clock_correct = 0
                     ack_lasted = (chrono.read_us()-sync_start)
                     if (ack_lasted > sync_slot*1.5): # sometimes the ack takes more time than it should
+                        print("warning! SACK slot lasted longer than expected!")
                         clock_correct = int(chrono.read_us()-sync_start) - sync_slot
                     elif (ack_lasted < sync_slot/3): # normally this should't happen
                         print("warning! very short SACK length (ms):", (chrono.read_us()-sync_start)/1000)
-                        clock_correct = (sync_slot - int(chrono.read_us()-sync_start) + 20000) # this must be tuned on
-                        time.sleep_us(clock_correct)
-                        clock_correct = 0
+                        time.sleep_us(sync_slot - int(chrono.read_us()-sync_start) + 0) # this must be tuned on
                     else: # adaptive SACK slot length
                         clocks.append(ack_lasted)
                         sync_slot = 0
@@ -313,6 +312,9 @@ while(i <= 1500): # stop after 1500 packets
                             clocks = [sync_slot]
                         print("new sync slot length (ms):", sync_slot/1000)
         if (rec == 0):
+            lora.power_mode(LoRa.SLEEP)
+            active_rx += (chrono.read_us() - sync_start)
+            time.sleep_ms(5)
             if (clock_correct == 0):
                 clock_correct = -guard
             elif (clock_correct == -guard):
@@ -327,7 +329,7 @@ while(i <= 1500): # stop after 1500 packets
                 repeats = 0
                 dropped += 1
                 retrans -= 1
-                clock_correct = 0
+                clock_correct = 1
                 i += 1
                 join_request(my_sf)
         print("sync slot lasted (ms):", (chrono.read_us()-sync_start)/1000)
@@ -336,6 +338,9 @@ while(i <= 1500): # stop after 1500 packets
         # f.write('transmitted/delivered/retransmitted: %d / %d / %d\n' % (i, succeeded, retrans))
     print("round lasted (ms):", (chrono.read_us()-start)/1000)
     print("radio active time (rx/tx) (s):", active_rx/1e6, "/", active_tx/1e6)
+    if (chrono.read_us()-start-round_length-sync_slot-12000 > guard) and (clock_correct == 0):
+        print("warning! frame lasted longer than expected!")
+        clock_correct = chrono.read_us()-start-round_length-sync_slot-12000-guard
     i += 1
 # f = open('/sd/stats.txt', 'w')
 # f.write('Total packets transmitted: %d\n' % i)
