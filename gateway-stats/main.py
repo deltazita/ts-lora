@@ -25,9 +25,11 @@ print("Starting with lora...")
 lora = LoRa(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[7], power_mode=LoRa.ALWAYS_ON, bandwidth=LoRa.BW_125KHZ, sf=7)
 lora_sock = socket.socket(socket.AF_LORA, socket.SOCK_RAW)
 lora_sock.setblocking(False)
+detailed_stats = []
 
 def receive_stats():
     stats = []
+    global detailed_stats
     while (True):
         recv_pkg = lora_sock.recv(100)
         if (len(recv_pkg) > 2):
@@ -51,6 +53,7 @@ def receive_stats():
                     if dev_id not in stats:
                         print('Node %d: %d %d %d %d' % (int(dev_id), int(i), int(succeeded), int(retrans), int(dropped)))
                         stats.append(dev_id)
+                        detailed_stats.append([int(dev_id), int(i), int(succeeded), int(retrans), int(dropped)])
 
 # wait for requests
 _thread.start_new_thread(receive_stats, ())

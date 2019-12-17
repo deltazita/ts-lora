@@ -45,7 +45,7 @@ def join_request(_sf):
     global active_rx
     global chrono
     global my_slot
-    global guard
+    global proc_gw
     global AppKey
     global DevNonce
     global AppSKey
@@ -116,8 +116,8 @@ def join_request(_sf):
                 dev_id, leng, s_msg = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
                 s_msg = str(s_msg)[2:]
                 s_msg = s_msg[:-1]
-                (index, guard, acks) = s_msg.split(":")
-                (index, guard) = (int(index), int(guard)*1000)
+                (index, proc_gw, acks) = s_msg.split(":")
+                (index, proc_gw) = (int(index), int(proc_gw)*1000)
                 print("ACK!")
                 # pycom.rgbled(blue)
                 lora.power_mode(LoRa.SLEEP)
@@ -149,8 +149,8 @@ server.deinit()
 
 _LORA_PKG_FORMAT = "!BB%ds"
 _LORA_RCV_PKG_FORMAT = "!BB%ds"
-MY_ID = 0x1A
-(my_sf, my_bw_index, guard, sync_rate, my_slot) = (7, 0, 15, 1, 0) # default values
+MY_ID = 0x16
+(my_sf, my_bw_index, guard, sync_rate, my_slot) = (7, 0, 15000, 1, 0) # default values
 index = 0
 S = 1000
 (retrans, succeeded, dropped) = (0, 0, 0)
@@ -200,10 +200,9 @@ join_start = chrono.read_us()
 # f = open('/sd/stats.txt', 'w')
 active_rx = 0.0
 active_tx = 0.0
+proc_gw = 4000 # gw default (minimum) processing time
 join_request(my_sf)
 repeats = 0
-if (guard < 10000): # no guard bellow 10ms is allowed
-    guard = 10000
 airt = math.ceil(airtime[my_sf-7][my_bw_index]*1000000)
 duty_cycle_limit_slots = math.ceil(100*airt/(airt + 2*guard))
 sync_slot = 80000 # this depends on SF/BW/index/guard (us)
@@ -216,6 +215,7 @@ print("airtime (ms):", airt/1000)
 print("Guard time (ms):", guard/1000)
 print("Duty cycle slots:", duty_cycle_limit_slots)
 print("SACK slot length (ms):", sync_slot/1000)
+print("Gw processing time (ms):", int(proc_gw/1000))
 
 # send data
 i = 1
@@ -231,7 +231,7 @@ while(i <= 1500): # stop after 1500 packets
         round_length = math.ceil(int(index)*(airt + 2*guard))
     else:
         round_length = math.ceil(duty_cycle_limit_slots*(airt + 2*guard))
-    round_length += 17500 # gw proc+switch time (us)
+    round_length += 10000 + proc_gw # gw proc+switch time (us)
     t = int(my_slot*(airt + 2*guard) + guard - proc_and_switch) # sleep time before transmission
     print("sleep time (ms):", t/1000)
     machine.idle()
@@ -270,8 +270,8 @@ while(i <= 1500): # stop after 1500 packets
                     dev_id, leng, s_msg = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
                     s_msg = str(s_msg)[2:]
                     s_msg = s_msg[:-1]
-                    (index, guard, acks) = s_msg.split(":")
-                    (index, guard) = (int(index), int(guard)*1000)
+                    (index, proc_gw, acks) = s_msg.split(":")
+                    (index, proc_gw) = (int(index), int(proc_gw)*1000)
                     print("SACK received!", s_msg)
                     print(lora.stats())
                     lora.power_mode(LoRa.SLEEP)
@@ -314,7 +314,7 @@ while(i <= 1500): # stop after 1500 packets
         if (rec == 0):
             lora.power_mode(LoRa.SLEEP)
             active_rx += (chrono.read_us() - sync_start)
-            time.sleep_ms(5)
+            time.sleep_ms(3)
             if (clock_correct == 0):
                 clock_correct = -guard
             elif (clock_correct == -guard):

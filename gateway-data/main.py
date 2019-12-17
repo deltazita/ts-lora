@@ -161,12 +161,13 @@ def receive_data():
         if (ack_msg != ""):
             ack_msg = str(hex(int(ack_msg, 2)))[2:]
         print("proc time (ms):", (chrono.read_us()-proc_t)/1000)
+        proc_t = chrono.read_us()-proc_t
         if (i % sync_rate == 0): # SACK
             sync_start = chrono.read_us()
             pycom.rgbled(white)
             time.sleep_us(int(guard*3/2)) # let's make it long so all the nodes are up
             lora.init(mode=LoRa.LORA, tx_iq=True, frequency=freqs[my_sf-5], region=LoRa.EU868, power_mode=LoRa.ALWAYS_ON, bandwidth=my_bw, sf=my_sf, tx_power=14)
-            data = str(index+1)+":"+str(int(guard/1000))+":"+ack_msg
+            data = str(index+1)+":"+str(int(proc_t/1000))+":"+ack_msg
             pkg = struct.pack(_LORA_PKG_FORMAT % len(data), MY_ID, len(data), data)
             pycom.rgbled(red)
             lora_sock.send(pkg)
