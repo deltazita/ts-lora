@@ -18,7 +18,7 @@ blue = 0x00007f
 pycom.heartbeat(False)
 _LORA_PKG_FORMAT = "!BB%ds"
 _LORA_RCV_PKG_FORMAT = "!BB%ds"
-freqs = [869700000, 869850000, 865000000, 865600000, 866200000, 866800000, 867400000, 868000000] # 2x125, 6x500 channels, 1% rdc
+freqs = [868100000, 868300000, 868500000, 867100000, 867300000, 867500000, 867700000, 867900000]
 
 pycom.rgbled(green)
 print("Starting with lora...")
@@ -36,12 +36,12 @@ def receive_stats():
             recv_pkg_len = recv_pkg[1]
             recv_pkg_id = recv_pkg[0]
             if (recv_pkg_len < 100) and (int(recv_pkg_id) <= 35):
-                pycom.rgbled(blue)
-                dev_id, leng, msg = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
-                # print('Dev %d requested: %s' % (dev_id, msg))
-                msg = str(msg)[2:]
-                msg = msg[:-1]
                 try: # the packet may arrive corrupted
+                    pycom.rgbled(blue)
+                    dev_id, leng, msg = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
+                    # print('Dev %d requested: %s' % (dev_id, msg))
+                    msg = str(msg)[2:]
+                    msg = msg[:-1]
                     (i, succeeded, retrans, dropped) = msg.split(":")
                     i = int(i)
                     succeeded = int(succeeded)
@@ -49,6 +49,7 @@ def receive_stats():
                     dropped = int(dropped)
                 except:
                     print("wrong node packet format!", msg)
+                    pycom.rgbled(red)
                 else:
                     if dev_id not in stats:
                         print('Node %d: %d %d %d %d' % (int(dev_id), int(i), int(succeeded), int(retrans), int(dropped)))

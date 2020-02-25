@@ -2,6 +2,8 @@
 # author: Dimitris Zorbas (dimzorbas@ieee.org)
 #
 # Distributed under GNU GPLv3
+#
+# Tested with firmware v1.18.2
 
 import os
 import sys
@@ -34,7 +36,25 @@ def zfill(s, width):
 def random_sleep(max_sleep):
     arg = "byteorder='big'"
     t = int.from_bytes(crypto.getrandbits(32), arg)
-    time.sleep(1 + t % max_sleep) # wake-up at a random time
+    time.sleep(1+t%max_sleep) # wake-up at a random time
+    # machine.sleep((1+t%max_sleep)*1000, 0) # wake-up at a random time
+
+# this is borrowed from LoRaSim (https://www.lancaster.ac.uk/scc/sites/lora/lorasim.html)
+def airtime_calc(sf,cr,pl,bw):
+    H = 0        # implicit header disabled (H=0) or not (H=1)
+    DE = 0       # low data rate optimization enabled (=1) or not (=0)
+    Npream = 8
+    if bw == 125 and sf in [11, 12]:
+        # low data rate optimization mandated for BW125 with SF11 and SF12
+        DE = 1
+    if sf == 6:
+        # can only have implicit header with SF6
+        H = 1
+    Tsym = (2.0**sf)/bw
+    Tpream = (Npream + 4.25)*Tsym
+    payloadSymbNB = 8 + max(math.ceil((8.0*pl-4.0*sf+28+16-20*H)/(4.0*(sf-2*DE)))*(cr+4),0)
+    Tpayload = payloadSymbNB * Tsym
+    return Tpream + Tpayload
 
 def join_request(_sf):
     global lora
@@ -61,8 +81,8 @@ def join_request(_sf):
         print("Request sent!", pkg)
         lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[1], power_mode=LoRa.ALWAYS_ON, bandwidth=LoRa.BW_125KHZ, sf=12)
         start = chrono.read_ms()
+        pycom.rgbled(green)
         while ((chrono.read_ms() - start) < 5000):
-            pycom.rgbled(green)
             recv_pkg = lora_sock.recv(50)
             if (len(recv_pkg) > 2):
                 recv_pkg_len = recv_pkg[1]
@@ -99,14 +119,14 @@ def join_request(_sf):
     thash = int(ubinascii.hexlify(thash.digest()), 16)
     my_slot = thash % S
     print("Slot =", my_slot, "DevAddr = ", DevAddr)
-
+    lora_sock.setblocking(False)
     lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[my_sf-5], power_mode=LoRa.ALWAYS_ON, bandwidth=my_bw, sf=my_sf)
     sync_start = chrono.read_ms()
     sack_rcv = 0
+    pycom.rgbled(white)
     print("Waiting for sync...")
     while (True):
         machine.idle()
-        pycom.rgbled(white)
         recv_pkg = lora_sock.recv(100)
         if (len(recv_pkg) > 2):
             recv_pkg_len = recv_pkg[1]
@@ -119,10 +139,10 @@ def join_request(_sf):
                 (index, proc_gw, acks) = s_msg.split(":")
                 (index, proc_gw) = (int(index), int(proc_gw)*1000)
                 print("ACK!")
-                # pycom.rgbled(blue)
                 lora.power_mode(LoRa.SLEEP)
                 active_rx += (chrono.read_ms() - sync_start)
                 time.sleep_ms(10)
+                # machine.sleep(10, 0)
                 break
     print("time after SACK rec (ms):", chrono.read_ms()-sack_rcv)
     print("sync slot lasted (ms):", chrono.read_ms()-sync_start)
@@ -130,16 +150,17 @@ def join_request(_sf):
 
 def generate_msg():
     global msg
-    msg = crypto.getrandbits(100*8)[:-2] # a random 98-byte message
+    msg = crypto.getrandbits(int(packet_size)*8)[:-2] # a random 98-byte message
 
 ### MAIN ###
 
-wlan = WLAN()
+wlan = WLAN(mode=WLAN.STA)
 wlan.deinit()
 bt = Bluetooth()
 bt.deinit()
 server = Server()
 server.deinit()
+# pybytes.smart_config(False)
 # py = Pytrack()
 # ANSELC_ADDR = const(0x18E)
 # py.poke_memory(ANSELC_ADDR, ~(1 << 7))
@@ -150,19 +171,22 @@ server.deinit()
 _LORA_PKG_FORMAT = "!BB%ds"
 _LORA_RCV_PKG_FORMAT = "!BB%ds"
 MY_ID = 0x16
-(my_sf, my_bw_index, guard, sync_rate, my_slot) = (7, 0, 15000, 1, 0) # default values
+(my_sf, my_bw_index, my_bw_plain, guard, sync_rate, my_slot, packet_size) = (7, 0, 0, 15000, 1, 0, 10) # default values
 index = 0
 S = 1000
 (retrans, succeeded, dropped) = (0, 0, 0)
-freqs = [869700000, 869850000, 865000000, 865600000, 866200000, 866800000, 867400000, 868000000] # 2x125, 6x500
+freqs = [868100000, 868300000, 868500000, 867100000, 867300000, 867500000, 867700000, 867900000]
 # airtimes for 100-byte packets and 8 preamble symbols [BW125, BW250, BW500] x 6 SFs
-airtime = [[0.174336, 0.087168, 0.043584], [0.307712, 0.153856, 0.076928], [0.553984, 0.276992, 0.138496], [1.026048, 0.513024, 0.256512], [2.215936, 0.944128, 0.472064], [3.940352, 1.724416, 0.862208]]
+# airtime = [[0.174336, 0.087168, 0.043584], [0.307712, 0.153856, 0.076928], [0.553984, 0.276992, 0.138496], [1.026048, 0.513024, 0.256512], [2.215936, 0.944128, 0.472064], [3.940352, 1.724416, 0.862208]]
 if (my_bw_index == 0):
     my_bw = LoRa.BW_125KHZ
+    my_bw_plain = 125
 elif (my_bw_index == 1):
     my_bw = LoRa.BW_250KHZ
+    my_bw_plain = 250
 else:
     my_bw = LoRa.BW_500KHZ
+    my_bw_plain = 500
 
 # some default AppKeys for 25 nodes
 AK = ["3878214125442A472D4B615064536756","7234753778217A25432A462D4A614E64","576D5A7134743777217A24432646294A","655368566D5971337436773979244226",
@@ -203,12 +227,13 @@ active_tx = 0.0
 proc_gw = 4000 # gw default (minimum) processing time
 join_request(my_sf)
 repeats = 0
-airt = math.ceil(airtime[my_sf-7][my_bw_index]*1000000)
+msg = crypto.getrandbits(int(packet_size)*8)[:-2]
+# airt = math.ceil(airtime[my_sf-7][my_bw_index]*1000000)
+airt = int(airtime_calc(my_sf,1,len(msg)+2,my_bw_plain)*1000)
 duty_cycle_limit_slots = math.ceil(100*airt/(airt + 2*guard))
 sync_slot = 80000 # this depends on SF/BW/index/guard (us)
 clock_correct = 0
 proc_and_switch = 12000 # time for preparing the packet and switch radio mode (us)
-msg = crypto.getrandbits(100*8)[:-2]
 clocks = [sync_slot]
 print("-----")
 print("airtime (ms):", airt/1000)
@@ -219,7 +244,6 @@ print("Gw processing time (ms):", int(proc_gw/1000))
 
 # send data
 i = 1
-sack_rcv = 0.0
 print("S T A R T")
 while(i <= 1500): # stop after 1500 packets
     print(i, "----------------------------------------------------")
@@ -234,34 +258,39 @@ while(i <= 1500): # stop after 1500 packets
     round_length += 10000 + proc_gw # gw proc+switch time (us)
     t = int(my_slot*(airt + 2*guard) + guard - proc_and_switch) # sleep time before transmission
     print("sleep time (ms):", t/1000)
-    machine.idle()
+    # machine.idle()
     time.sleep_us(t)
+    # machine.sleep(int(t/1000), 0)
     _thread.start_new_thread(generate_msg, ())
     pycom.rgbled(red)
     on_time = chrono.read_us()
     lora.init(mode=LoRa.LORA, tx_iq=True, region=LoRa.EU868, frequency=freqs[my_sf-5], power_mode=LoRa.TX_ONLY, bandwidth=my_bw, sf=my_sf, tx_power=14)
     pkg = struct.pack(_LORA_PKG_FORMAT % len(msg), MY_ID, len(msg), msg)
-    print("Sending packet of", len(pkg), "bytes at (ms):", chrono.read_ms()-start/1000)
+    print("Sending packet of", len(pkg), "bytes at (ms):", (chrono.read_us()-start)/1000)
     lora_sock.send(pkg)
     # print(lora.stats())
     pycom.rgbled(off)
     lora.power_mode(LoRa.SLEEP)
-    active_tx += (chrono.read_us() - on_time)
+    active_tx += (chrono.read_us() + t - on_time)
     t = round_length - int(chrono.read_us() - start) - int(clock_correct)
-    print("sleep time after data (ms):", t/1000, "/ clock correction (ms):", clock_correct/1000)
+    print("sleep time after data (s):", t/1e6, "/ clock correction (ms):", clock_correct/1000)
     machine.idle()
     time.sleep_us(t)
+    # machine.sleep(int(t/1000), 0)
     if (i % sync_rate == 0): # SACK
         rec = 0
+        sack_rcv = 0
         clock_correct = 0
         acks = ""
+        lora_sock.setblocking(False)
         lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[my_sf-5], power_mode=LoRa.ALWAYS_ON, bandwidth=my_bw, sf=my_sf)
         sync_start = chrono.read_us()
-        print("started sync slot at:", sync_start/1000)
-        while (rec == 0) and ((chrono.read_us() - sync_start) <= sync_slot):
+        print("started sync slot at (ms):", (sync_start)/1000)
+        pycom.rgbled(white)
+        while (rec == 0) and ((chrono.read_us() - sync_start) < sync_slot):
             machine.idle()
+            sack_rcv = chrono.read_us()
             recv_pkg = lora_sock.recv(30)
-            pycom.rgbled(white)
             if (len(recv_pkg) > 2):
                 recv_pkg_len = recv_pkg[1]
                 recv_pkg_id = recv_pkg[0]
@@ -296,9 +325,13 @@ while(i <= 1500): # stop after 1500 packets
                     machine.idle()
                     rec = 1
                     ack_lasted = (chrono.read_us()-sync_start)
-                    if (ack_lasted > sync_slot*1.5): # sometimes the ack takes more time than it should
+                    if (ack_lasted > sync_slot + guard): # sometimes the ack takes more time than it should
                         print("warning! SACK slot lasted longer than expected!")
-                        clock_correct = int(chrono.read_us()-sync_start) - sync_slot
+                        clock_correct = int(chrono.read_us()-sync_start) - sync_slot - guard
+                        print("clock correction will applied (us):", clock_correct)
+                        time.sleep_us(clock_correct)
+                        # machine.sleep(int(clock_correct/1000))
+                        clock_correct = 0
                     elif (ack_lasted < sync_slot/3): # normally this should't happen
                         print("warning! very short SACK length (ms):", (chrono.read_us()-sync_start)/1000)
                         time.sleep_us(sync_slot - int(chrono.read_us()-sync_start) + 0) # this must be tuned on
@@ -314,7 +347,8 @@ while(i <= 1500): # stop after 1500 packets
         if (rec == 0):
             lora.power_mode(LoRa.SLEEP)
             active_rx += (chrono.read_us() - sync_start)
-            time.sleep_ms(3)
+            time.sleep_ms(5)
+            # machine.sleep(3, 0)
             if (clock_correct == 0):
                 clock_correct = -guard
             elif (clock_correct == -guard):
@@ -333,10 +367,10 @@ while(i <= 1500): # stop after 1500 packets
                 i += 1
                 join_request(my_sf)
         print("sync slot lasted (ms):", (chrono.read_us()-sync_start)/1000)
-        print("time after SACK (ms):", (chrono.read_us() - sack_rcv)/1000)
+        print("time after SACK (ms):", (chrono.read_us()-sack_rcv)/1000)
         print("transmitted/delivered/retransmitted/dropped:", i, succeeded, retrans, dropped)
         # f.write('transmitted/delivered/retransmitted: %d / %d / %d\n' % (i, succeeded, retrans))
-    print("round lasted (ms):", (chrono.read_us()-start)/1000)
+    print("round lasted (s):", (chrono.read_us()-start)/1e6)
     print("radio active time (rx/tx) (s):", active_rx/1e6, "/", active_tx/1e6)
     if (chrono.read_us()-start-round_length-sync_slot-12000 > guard) and (clock_correct == 0):
         print("warning! frame lasted longer than expected!")

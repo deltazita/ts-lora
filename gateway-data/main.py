@@ -2,6 +2,8 @@
 # author: Dimitris Zorbas (dimzorbas@ieee.org)
 #
 # Distributed under GNU GPLv3
+#
+# Tested with firmware v1.18.2
 
 import socket
 import struct
@@ -26,10 +28,8 @@ _LORA_PKG_FORMAT = "!BB%ds"
 _LORA_RCV_PKG_FORMAT = "!BB%ds"
 MY_ID = 0x02
 my_sf = int(MY_ID) + 5
-(guard, sync_rate, prc) = (15, 1, 10)
-freqs = [869700000, 869850000, 865000000, 865600000, 866200000, 866800000, 867400000, 868000000] # 2x125, 6x500
-# airtimes for 100bytes + 8 symbol preamble
-airtime = [[0.174336, 0.087168, 0.043584], [0.307712, 0.153856, 0.076928], [0.553984, 0.276992, 0.138496], [1.026048, 0.513024, 0.256512], [2.215936, 0.944128, 0.472064], [3.940352, 1.724416, 0.862208]]
+(guard, sync_rate, packet_size) = (15, 1, 10)
+freqs = [868100000, 868300000, 868500000, 867100000, 867300000, 867500000, 867700000, 867900000]
 index = 0
 slot = {}
 KEY = {}
@@ -53,10 +53,11 @@ print("I got IP"+wlan.ifconfig()[0])
 
 # print(ubinascii.hexlify(wlan.mac(),':').decode())
 
+# this is borrowed from LoRaSim (https://www.lancaster.ac.uk/scc/sites/lora/lorasim.html)
 def airtime_calc(sf,cr,pl,bw):
     H = 0        # implicit header disabled (H=0) or not (H=1)
     DE = 0       # low data rate optimization enabled (=1) or not (=0)
-    Npream = 8   # number of preamble symbol (12.25  from Utz paper)
+    Npream = 8
     if bw == 125 and sf in [11, 12]:
         # low data rate optimization mandated for BW125 with SF11 and SF12
         DE = 1
@@ -103,13 +104,14 @@ def receive_data():
     global index
     global guard
     global slot
-    global prc
+    global packet_size
     lora = LoRa(mode=LoRa.LORA, rx_iq=True, frequency=freqs[my_sf-5], region=LoRa.EU868, power_mode=LoRa.ALWAYS_ON, bandwidth=my_bw, sf=my_sf)
     lora_sock = socket.socket(socket.AF_LORA, socket.SOCK_RAW)
     lora_sock.setblocking(False)
     guard = 1000*guard
     (overall_received, overall_sent) = (0, 0)
-    airt = math.ceil((airtime[my_sf-7][my_bw_index])*1e6)
+    # airt = math.ceil((airtime[my_sf-7][my_bw_index])*1e6)
+    airt = int(airtime_calc(my_sf,1,packet_size+2,my_bw_plain)*1000)
     duty_cycle_limit_slots = math.ceil(100*airt/(airt + 2*guard))
     print("duty cycle slots:", duty_cycle_limit_slots)
     print("packet airtime (ms):", airt/1000)
@@ -135,10 +137,10 @@ def receive_data():
             if (len(recv_pkg) > 2):
                 recv_pkg_len = recv_pkg[1]
                 recv_pkg_id = recv_pkg[0]
-                if (int(recv_pkg_id) <= 35) and (int(recv_pkg_len) == 98):
+                if (int(recv_pkg_id) <= 35):# and (int(recv_pkg_len) == int(packet_size)):
                     dev_id, leng, msg = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
                     # print('Device: %d - Pkg:  %s' % (dev_id, msg))
-                    if (len(msg) == 98): # format check
+                    if (len(msg) == packet_size): # format check
                         received += 1
                         print('Received from: %d' % dev_id)
                         acks.append(str(int(dev_id)))
