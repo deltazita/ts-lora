@@ -28,12 +28,11 @@ _LORA_PKG_FORMAT = "!BB%ds"
 _LORA_RCV_PKG_FORMAT = "!BB%ds"
 MY_ID = 0x02
 my_sf = int(MY_ID) + 5
-(guard, sync_rate, packet_size) = (15, 1, 10)
+(guard, my_bw_index, sync_rate, packet_size) = (15, 0, 1, 16) # the packet size is without the overhead (2 bytes)
 freqs = [868100000, 868300000, 868500000, 867100000, 867300000, 867500000, 867700000, 867900000]
 index = 0
 slot = {}
 KEY = {}
-my_bw_index = 0
 if (my_bw_index == 0):
     my_bw = LoRa.BW_125KHZ
     my_bw_plain = 125
@@ -45,13 +44,12 @@ elif (my_bw_index == 2):
     my_bw_plain = 500
 
 wlan = WLAN(mode=WLAN.STA)
+print("My MAC address is:", ubinascii.hexlify(wlan.mac(),':').decode())
 if not wlan.isconnected():
     wlan.connect('rasp', auth=(WLAN.WPA2, 'lalalala'), timeout=5000)
     while not wlan.isconnected():
         machine.idle()
 print("I got IP"+wlan.ifconfig()[0])
-
-# print(ubinascii.hexlify(wlan.mac(),':').decode())
 
 # this is borrowed from LoRaSim (https://www.lancaster.ac.uk/scc/sites/lora/lorasim.html)
 def airtime_calc(sf,cr,pl,bw):
@@ -110,7 +108,6 @@ def receive_data():
     lora_sock.setblocking(False)
     guard = 1000*guard
     (overall_received, overall_sent) = (0, 0)
-    # airt = math.ceil((airtime[my_sf-7][my_bw_index])*1e6)
     airt = int(airtime_calc(my_sf,1,packet_size+2,my_bw_plain)*1000)
     duty_cycle_limit_slots = math.ceil(100*airt/(airt + 2*guard))
     print("duty cycle slots:", duty_cycle_limit_slots)
@@ -124,26 +121,28 @@ def receive_data():
         print("Net size is:", index+1)
         chrono.reset()
         round_start = chrono.read_us()
-        pycom.rgbled(off)
         received = 0
         acks = []
         if (int(index) > duty_cycle_limit_slots):
             round_length = math.ceil(int(index)*(airt + 2*guard))
         else:
             round_length = math.ceil(duty_cycle_limit_slots*(airt + 2*guard))
+        lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[my_sf-5], power_mode=LoRa.ALWAYS_ON, bandwidth=my_bw, sf=my_sf)
         rec_start = chrono.read_us()
+        pycom.rgbled(green)
         while ((chrono.read_us() - round_start) < round_length-66000): # the following line may take up to 66ms
             recv_pkg = lora_sock.recv(256)
             if (len(recv_pkg) > 2):
                 recv_pkg_len = recv_pkg[1]
                 recv_pkg_id = recv_pkg[0]
-                if (int(recv_pkg_id) <= 35):# and (int(recv_pkg_len) == int(packet_size)):
+                if (int(recv_pkg_id) <= 35) and (int(recv_pkg_len) == int(packet_size)):
                     dev_id, leng, msg = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
-                    # print('Device: %d - Pkg:  %s' % (dev_id, msg))
                     if (len(msg) == packet_size): # format check
                         received += 1
-                        print('Received from: %d' % dev_id)
+                        # print('Received from: %d' % dev_id)
+                        # print(lora.stats())
                         acks.append(str(int(dev_id)))
+                        pycom.rgbled(off)
         print(received, "packets received")
         rec_lasted = chrono.read_us()-rec_start
         if (rec_lasted < round_length):
@@ -174,8 +173,8 @@ def receive_data():
             pycom.rgbled(red)
             lora_sock.send(pkg)
             print("Sent sync: "+data)
-            lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[my_sf-5], power_mode=LoRa.ALWAYS_ON, bandwidth=my_bw, sf=my_sf)
-            time.sleep_ms(math.ceil(airtime_calc(my_sf,1,len(data),my_bw_plain))) # wait until the nodes get the packet
+            pycom.rgbled(off)
+            time.sleep_ms(13) # node time after sack
             print("sync lasted (ms):", (chrono.read_us()-sync_start)/1000)
         print("round lasted (ms):", (chrono.read_us()-round_start)/1000)
         i += 1

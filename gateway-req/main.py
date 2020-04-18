@@ -50,7 +50,7 @@ def receive_req():
     global JoinNonce
     registered = []
     while (True):
-        recv_pkg = lora_sock.recv(200)
+        recv_pkg = lora_sock.recv(100)
         if (len(recv_pkg) > 2):
             recv_pkg_len = recv_pkg[1]
             recv_pkg_id = recv_pkg[0]
@@ -67,7 +67,7 @@ def receive_req():
                     DevNonce = int(DevNonce)
                     req_sf = int(req_sf)
                 except:
-                    print("wrong node packet format!", msg)
+                    print("wrong node packet format!")
                 else:
                     exists = 0
                     slot = 0
@@ -96,18 +96,20 @@ def receive_req():
                         try:
                             (rdev_id, DevAddr, AppSkey) = msg.split(":")
                         except:
-                            print("wrong RPi packet format!", msg)
+                            print("wrong RPi packet format!")
+                            pycom.rgbled(red)
                             wlan_s.close()
                         else:
-                            # send registered node info to the data gateway
-                            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                            s.connect(('192.168.0.'+str(req_sf-5), 8000))
                             try:
+                                # send registered node info to the data gateway
+                                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                                s.connect(('192.168.0.'+str(req_sf-5), 8000))
                                 s.send(str(dev_id)+":"+str(slot)+":"+AppSkey)
-                            except OSError as e:
+                            except:
+                                print("Data-gw socket error")
                                 pycom.rgbled(red)
-                                if e.args[0] != uerrno.EINPROGRESS:
-                                    raise
+                                wlan_s.close()
+                                s.close()
                             else:
                                 # send DevAddr and JoinNonce to the node
                                 msg = str(dev_id)+":"+str(DevAddr)+":"+str(JoinNonce[int(dev_id)])
@@ -116,6 +118,8 @@ def receive_req():
                                 pkg = struct.pack(_LORA_PKG_FORMAT % len(msg), MY_ID, len(msg), msg)
                                 lora_sock.send(pkg) # I should encrypt that using node's AppKey
                                 lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[0], power_mode=LoRa.ALWAYS_ON, bandwidth=LoRa.BW_125KHZ, sf=12)
+                                wlan_s.close()
+                                s.close()
 
 # wait for requests
 for i in range(7,13):

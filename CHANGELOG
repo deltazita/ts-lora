@@ -1,0 +1,16 @@
+Changelog 
+
+TS-LoRa
+
+version 1.1.1
+- added Over-The-Air (OTA over WiFi) firmware/code update support (experimental)
+- added an adaptive sync_packet calculation to work with all SFs/BWs/packet sizes
+- stats gateway is now mandatory and it is used as the init server (see new SETUP)
+- nodes can send out statistics of their rx/tx uptimes
+- registration and synchronisation are now two separate functions
+- synchronisation precision fixes
+- fixed a bug with arbitrary packet sizes
+- fixed a desynchronisation issue in Fipy
+
+version 1.0.0
+- initial version
