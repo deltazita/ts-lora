@@ -7,6 +7,7 @@ version 1.1.1
 - added an adaptive sync_packet calculation to work with all SFs/BWs/packet sizes
 - stats gateway is now mandatory and it is used as the init server (see new SETUP)
 - nodes can send out statistics of their rx/tx uptimes
+- the node DevEUIs and IDs must first be registered in the ids file (see ids example)
 - registration and synchronisation are now two separate functions
 - synchronisation precision fixes
 - fixed a bug with arbitrary packet sizes
