@@ -32,8 +32,7 @@ from OTA import WiFiOTA
 ### FUNCTIONS ###
 
 def OTA_update(_ip):
-    # ota = WiFiOTA("Guests@Tyndall", "", _ip, 8000)
-    ota = WiFiOTA("vodafone-EA15", "PEJY2FEKVEWVAH", _ip, 8000)
+    ota = WiFiOTA("Guests@Tyndall", "", _ip, 8000)
     print("Performing OTA")
     pycom.rgbled(0xDB7093)
     try:
