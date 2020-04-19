@@ -32,7 +32,8 @@ from OTA import WiFiOTA
 ### FUNCTIONS ###
 
 def OTA_update(_ip):
-    ota = WiFiOTA("Guests@Tyndall", "", _ip, 8000) # for OTA
+    # ota = WiFiOTA("Guests@Tyndall", "", _ip, 8000)
+    ota = WiFiOTA("vodafone-EA15", "PEJY2FEKVEWVAH", _ip, 8000)
     print("Performing OTA")
     pycom.rgbled(0xDB7093)
     try:
@@ -167,7 +168,7 @@ def sync():
             recv_pkg_len = recv_pkg[1]
             recv_pkg_id = recv_pkg[0]
             if (int(recv_pkg_id) == (my_sf-5)):
-                sack_rcv = chrono.read_ms()
+                sack_rcv = chrono.read_us()
                 dev_id, leng, s_msg = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
                 s_msg = str(s_msg)[2:]
                 s_msg = s_msg[:-1]
@@ -207,9 +208,8 @@ def start_transmissions(_pkts):
     global sack_bytes
     airt = int(airtime_calc(my_sf,1,packet_size+2,my_bw_plain)*1000)
     duty_cycle_limit_slots = math.ceil(100*airt/(airt + 2*guard))
-    clock_correct = 0
     proc_and_switch = 12000 # time for preparing the packet and switch radio mode (us)
-    if (int(MY_ID) == 22 or int(MY_ID) == 34): # fipy nodes switch faster (you need to change this)
+    if (int(MY_ID) == 22 or int(MY_ID) == 34): # fipy nodes switch faster
         proc_and_switch = 10000
     chrono.reset()
     if (my_slot == -1):
@@ -218,16 +218,18 @@ def start_transmissions(_pkts):
     else:
         sync()
     repeats = 0
-    sync_slot = int(airtime_calc(my_sf,1,sack_bytes+2,my_bw_plain)*1000+guard)
+    clock_correct = 0
+    sync_slot = int(airtime_calc(my_sf,1,sack_bytes+2,my_bw_plain)*1000+guard+proc_gw)
     clocks = [sync_slot]
     print("-----")
+    print("MY SLOT:", my_slot)
+    print("Net size:", index)
     print("Time on air (ms):", airt/1000)
     print("Guard time (ms):", guard/1000)
     print("Duty cycle slots:", duty_cycle_limit_slots)
     print("SACK slot length (ms):", sync_slot/1000)
     print("Gw processing time (ms):", int(proc_gw/1000))
-    print("Time after SACK rec (ms):", chrono.read_ms()-sack_rcv)
-
+    print("Time after SACK rec (ms):", (chrono.read_us()-sack_rcv)/1000)
     # send data
     i = 1
     (succeeded, retrans, dropped, active_rx, active_tx) = (0, 0, 0, 0.0, 0.0)
@@ -248,7 +250,6 @@ def start_transmissions(_pkts):
         print("sleep time (ms):", t/1000)
         pycom.rgbled(off)
         time.sleep_us(t)
-        # machine.sleep(int(t/1000), 0)
         _thread.start_new_thread(generate_msg, ())
         pycom.rgbled(red)
         on_time = chrono.read_us()
@@ -260,20 +261,20 @@ def start_transmissions(_pkts):
         pycom.rgbled(off)
         lora.power_mode(LoRa.SLEEP)
         active_tx += (chrono.read_us() - on_time)
-        t = round_length - int(chrono.read_us() - start) - int(clock_correct)
+        t = int(round_length - (chrono.read_us() - start) - clock_correct)
         if t < 0:
             t = 0
+            print("cannot align clock!")
         print("sleep time after data (s):", t/1e6, "/ clock correction (ms):", clock_correct/1000)
         machine.idle()
         time.sleep_us(t)
+        sync_start = chrono.read_us()
         if (i % sync_rate == 0): # SACK
             rec = 0
             sack_rcv = 0
-            clock_correct = 0
             acks = ""
             lora_sock.setblocking(False)
             lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[my_sf-5], power_mode=LoRa.ALWAYS_ON, bandwidth=my_bw, sf=my_sf)
-            sync_start = chrono.read_us()
             print("started sync slot at (ms):", (sync_start)/1000)
             pycom.rgbled(white)
             while (rec == 0) and ((chrono.read_us() - sync_start) < sync_slot):
@@ -294,6 +295,7 @@ def start_transmissions(_pkts):
                         print(lora.stats())
                         lora.power_mode(LoRa.SLEEP)
                         active_rx += (chrono.read_us() - sync_start)
+                        clock_correct = 0
                         if (acks != ""):
                             acks = zfill(bin(int(acks, 16))[2:], index)
                             if (acks[my_slot] == "1"):
@@ -314,18 +316,16 @@ def start_transmissions(_pkts):
                         machine.idle()
                         rec = 1
                         ack_lasted = (chrono.read_us()-sync_start)
-                        if (ack_lasted > sync_slot + guard): # sometimes the ack takes more time than it should
-                            print("warning! SACK slot lasted longer than expected!")
-                            clock_correct = int(chrono.read_us()-sync_start) - sync_slot - guard
-                            print("clock correction will applied (us):", clock_correct)
-                            time.sleep_us(clock_correct)
-                            # machine.sleep(int(clock_correct/1000))
-                            clock_correct = 0
+                        if (ack_lasted > sync_slot + guard): # this is a hardware bug
+                            print("The clock went for a walk...", (ack_lasted-sync_slot)/1000, "ms of misalignment!")
+                            time.sleep_us(round_length-100000) # sorry, we'll miss one round
+                            sync()
+                            clock_correct = -1
                         elif (ack_lasted < sync_slot/3): # normally this should't happen
                             print("warning! very short SACK length (ms):", (chrono.read_us()-sync_start)/1000)
                             time.sleep_us(sync_slot - int(chrono.read_us()-sync_start) + 0) # this must be tuned on
                         else: # adaptive SACK slot length
-                            if (i == 1):
+                            if (i == 1): # what if the first packet is dropped. I have to fix this
                                 clocks = [ack_lasted]
                             else:
                                 clocks.append(ack_lasted)
@@ -352,30 +352,38 @@ def start_transmissions(_pkts):
                     i += 1
                     pycom.rgbled(red)
                     sync()
+                    clock_correct = -1
             print("sync slot lasted (ms):", (chrono.read_us()-sync_start)/1000)
-            print("time after SACK (ms):", (chrono.read_us()-sack_rcv)/1000)
+            tas = chrono.read_us()-sack_rcv+2000 # add 2ms for proc after that point
+            print("time after SACK (ms):", tas/1000)
+            if (tas < 13000):
+                print("Warning! time after SACK was short!")
+                time.sleep_us(int(13000-tas))
+                print("corrected time after SACK (ms):", (chrono.read_us()-sack_rcv)/1000)
             print("transmitted/delivered/retransmitted/dropped:", i, succeeded, retrans, dropped)
             # f.write('transmitted/delivered/retransmitted: %d / %d / %d\n' % (i, succeeded, retrans))
-        print("round lasted (s):", (chrono.read_us()-start)/1e6)
+        rl = chrono.read_us()-start
+        print("round lasted (ms):", rl/1000)
         print("radio active time (rx/tx) (s):", active_rx/1e6, "/", active_tx/1e6)
-        if (chrono.read_us()-start-round_length-sync_slot-12000 > guard) and (clock_correct == 0):
-            print("warning! frame lasted longer than expected!")
-            clock_correct = chrono.read_us()-start-round_length-sync_slot-12000-guard
+        if (rl > round_length+sync_slot+13000+proc_and_switch) and (clock_correct == 0):
+            print("Warning! frame lasted longer than expected!")
+            clock_correct = rl - (round_length+sync_slot+13000+proc_and_switch)
+            print("corrected round lasted (ms):", (chrono.read_us()-start)/1000)
         i += 1
 
     # send out stats
     print("I'm sending stats")
     stat_msg = str(i-1)+":"+str(succeeded)+":"+str(retrans)+":"+str(dropped)+":"+str(active_rx/1000)+":"+str(active_tx/1000)
     pkg = struct.pack(_LORA_PKG_FORMAT % len(stat_msg), MY_ID, len(stat_msg), stat_msg)
-    for x in range(3): # send it out 3 times
+    for x in range(3): # send it out 3 times (watch out for collision in case of many nodes. I have to fix this)
         lora.init(mode=LoRa.LORA, tx_iq=True, region=LoRa.EU868, frequency=freqs[7], power_mode=LoRa.TX_ONLY, bandwidth=LoRa.BW_125KHZ, sf=12, tx_power=7)
         pycom.rgbled(blue)
         while (lora.ischannel_free(-90) == False):
             print("Channel is busy!")
-            time.sleep(2)
+            random_sleep(2)
         lora_sock.send(pkg)
         lora.power_mode(LoRa.SLEEP)
-        random_sleep(1)
+        random_sleep(2)
     pycom.rgbled(off)
 
 
@@ -445,7 +453,7 @@ lora_sock = socket.socket(socket.AF_LORA, socket.SOCK_RAW)
 lora_sock.setblocking(False)
 chrono = Timer.Chrono()
 
-# for testing
+# uncomment those two lines if you don't want OTA update
 # chrono.start()
 # start_transmissions(100)
 
@@ -463,14 +471,13 @@ while(True):
                 ippkts = str(ippkts)[2:][:-1]
                 (ip, pkts) = ippkts.split(":")
                 pkts = int(pkts)
+                pycom.rgbled(blue)
                 random_sleep(20)
-                # put in comments those two lines if you don't want OTA updates
                 print("OTA over WLAN (IP):", ip)
                 OTA_update(ip)
-                #
                 chrono.start()
                 join_start = chrono.read_us()
-                # wlan.deinit() # don't deinit wlan when using OTA
+                # wlan.deinit()
                 start_transmissions(pkts)
                 print("...experiment done!")
                 lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[0], power_mode=LoRa.ALWAYS_ON, bandwidth=LoRa.BW_125KHZ, sf=12)
