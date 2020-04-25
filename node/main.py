@@ -287,7 +287,6 @@ def start_transmissions(_pkts):
                     recv_pkg_id = recv_pkg[0]
                     if (int(recv_pkg_id) == (my_sf-5)):
                         sack_rcv = chrono.read_us()
-                        print(sack_rcv-sync_start)
                         dev_id, leng, s_msg = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
                         s_msg = str(s_msg)[2:]
                         s_msg = s_msg[:-1]
@@ -376,7 +375,6 @@ def start_transmissions(_pkts):
 
     # send out stats
     print("I'm sending stats")
-    print(bug_counter)
     stat_msg = str(i-1)+":"+str(succeeded)+":"+str(retrans)+":"+str(dropped)+":"+str(active_rx/1e6)+":"+str(active_tx/1e6)
     pkg = struct.pack(_LORA_PKG_FORMAT % len(stat_msg), MY_ID, len(stat_msg), stat_msg)
     for x in range(3): # send it out 3 times
