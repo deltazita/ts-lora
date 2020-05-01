@@ -2,6 +2,16 @@ Changelog
 
 TS-LoRa
 
+version 1.1.9
+- latest release
+- replaced non-blocking LoRa sockets with blocking ones and timeouts
+This finally fixes an issue with non-blocking sockets causing desynchronisations
+- minor corrections
+
+version 1.1.6
+- first release
+- fixed a sync bug with repeated experiments
+
 version 1.1.1
 - added Over-The-Air (OTA over WiFi) firmware/code update support (experimental)
 - added an adaptive sync_packet calculation to work with all SFs/BWs/packet sizes
