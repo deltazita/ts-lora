@@ -2,6 +2,12 @@ Changelog
 
 TS-LoRa
 
+version 1.1.10
+- added adaptive correction time
+- latest gateway_data code
+- added support for 1.20+ firmware (experimental, no backward compatibility)
+- added support for light sleep mode with 1.20+ firmware only
+
 version 1.1.9
 - latest release
 - replaced non-blocking LoRa sockets with blocking ones and timeouts

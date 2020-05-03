@@ -28,7 +28,7 @@ _LORA_PKG_FORMAT = "!BB%ds"
 _LORA_RCV_PKG_FORMAT = "!BB%ds"
 MY_ID = 0x02
 my_sf = int(MY_ID) + 5
-(guard, my_bw_index, sync_rate, packet_size) = (15, 0, 1, 16) # the packet size is without the overhead (2 bytes)
+(guard, my_bw_index, packet_size) = (15, 0, 16) # the packet size must align with the nodes packet size
 freqs = [868100000, 868300000, 868500000, 867100000, 867300000, 867500000, 867700000, 867900000]
 index = 0
 slot = {}
@@ -130,7 +130,7 @@ def receive_data():
         lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[my_sf-5], power_mode=LoRa.ALWAYS_ON, bandwidth=my_bw, sf=my_sf)
         rec_start = chrono.read_us()
         pycom.rgbled(green)
-        while ((chrono.read_us() - round_start) < round_length-66000): # the following line may take up to 66ms
+        while ((chrono.read_us() - round_start) < round_length-(airt + 2*guard)): # kill the last slot
             recv_pkg = lora_sock.recv(256)
             if (len(recv_pkg) > 2):
                 recv_pkg_len = recv_pkg[1]
@@ -140,7 +140,7 @@ def receive_data():
                     if (len(msg) == packet_size): # format check
                         received += 1
                         # print('Received from: %d' % dev_id)
-                        # print(lora.stats())
+                        print(dev_id, lora.stats())
                         acks.append(str(int(dev_id)))
                         pycom.rgbled(off)
         print(received, "packets received")
@@ -163,19 +163,18 @@ def receive_data():
             ack_msg = str(hex(int(ack_msg, 2)))[2:]
         print("proc time (ms):", (chrono.read_us()-proc_t)/1000)
         proc_t = chrono.read_us()-proc_t
-        if (i % sync_rate == 0): # SACK
-            sync_start = chrono.read_us()
-            pycom.rgbled(white)
-            time.sleep_us(int(guard*3/2)) # let's make it long so all the nodes are up
-            lora.init(mode=LoRa.LORA, tx_iq=True, frequency=freqs[my_sf-5], region=LoRa.EU868, power_mode=LoRa.ALWAYS_ON, bandwidth=my_bw, sf=my_sf, tx_power=14)
-            data = str(index+1)+":"+str(int(proc_t/1000))+":"+ack_msg
-            pkg = struct.pack(_LORA_PKG_FORMAT % len(data), MY_ID, len(data), data)
-            pycom.rgbled(red)
-            lora_sock.send(pkg)
-            print("Sent sync: "+data)
-            pycom.rgbled(off)
-            time.sleep_ms(13) # node time after sack
-            print("sync lasted (ms):", (chrono.read_us()-sync_start)/1000)
+        sync_start = chrono.read_us()
+        pycom.rgbled(white)
+        time.sleep_us(int(3*guard/2))
+        lora.init(mode=LoRa.LORA, tx_iq=True, frequency=freqs[my_sf-5], region=LoRa.EU868, power_mode=LoRa.TX_ONLY, bandwidth=my_bw, sf=my_sf, tx_power=14)
+        data = str(index+1)+":"+str(int(proc_t/1000))+":"+ack_msg
+        pkg = struct.pack(_LORA_PKG_FORMAT % len(data), MY_ID, len(data), data)
+        pycom.rgbled(red)
+        lora_sock.send(pkg)
+        print("Sent sync: "+data)
+        pycom.rgbled(off)
+        time.sleep_ms(17) # node time after sack
+        print("sync lasted (ms):", (chrono.read_us()-sync_start)/1000)
         print("round lasted (ms):", (chrono.read_us()-round_start)/1000)
         i += 1
 

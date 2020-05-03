@@ -3,7 +3,7 @@
 #
 # Distributed under GNU GPLv3
 #
-# Tested with firmware v1.18.2
+# Tested with firmware v1.21.1 (no backward compatibility)
 
 import os
 import sys
@@ -97,8 +97,8 @@ def join_request(_sf):
         pycom.rgbled(blue)
         lora.init(mode=LoRa.LORA, tx_iq=True, region=LoRa.EU868, frequency=freqs[0], power_mode=LoRa.TX_ONLY, bandwidth=LoRa.BW_125KHZ, sf=12, tx_power=7)
         start = chrono.read_ms()
-        while(lora.ischannel_free(-90) == False):
-            time.sleep(1)
+        # while(lora.ischannel_free(-90) == False):
+        #     time.sleep(1)
         lora_sock.send(pkg)
         active_tx += chrono.read_ms()-start
         print("Request sent!", pkg)
@@ -251,29 +251,30 @@ def start_transmissions(_pkts):
         else:
             round_length = math.ceil(duty_cycle_limit_slots*(airt + 2*guard))
         round_length += proc_gw # gw proc+switch time (us)
-        t = int(my_slot*(airt + 2*guard) + guard - proc_and_switch) # sleep time before transmission
-        print("sleep time (ms):", t/1000)
+        t1 = (my_slot*(airt + 2*guard) + guard - proc_and_switch) # sleep time before transmission
+        print("sleep time (ms):", t1/1000)
         pycom.rgbled(off)
-        time.sleep_us(t)
-        # machine.sleep(int(t/1000), 0)
+        # time.sleep_us(int(t1))
+        machine.sleep(int(t1/1000), 0)
         _thread.start_new_thread(generate_msg, ())
         pycom.rgbled(red)
         on_time = chrono.read_us()
         lora.init(mode=LoRa.LORA, tx_iq=True, region=LoRa.EU868, frequency=freqs[my_sf-5], power_mode=LoRa.TX_ONLY, bandwidth=my_bw, sf=my_sf, tx_power=14)
         pkg = struct.pack(_LORA_PKG_FORMAT % len(msg), MY_ID, len(msg), msg)
-        print("Sending packet of", len(pkg), "bytes at (ms):", (chrono.read_us()-start)/1000)
+        print("Sending packet of", len(pkg), "bytes at (ms):", (chrono.read_us()+t1-start)/1000)
         lora_sock.send(pkg)
         # print(lora.stats())
         pycom.rgbled(off)
         lora.power_mode(LoRa.SLEEP)
         active_tx += (chrono.read_us() - on_time)
-        t = int(round_length - (chrono.read_us() - start) - clock_correct)
-        if t < 0:
-            t = 0
+        t2 = round_length - (chrono.read_us()+t1 - start) - clock_correct
+        if t2 < 0:
+            t2 = 0
             print("cannot align clock!")
-        print("sleep time after data (s):", t/1e6, "/ clock correction (ms):", clock_correct/1000)
+        print("sleep time after data (s):", t2/1e6, "/ clock correction (ms):", clock_correct/1000)
         machine.idle()
-        time.sleep_us(t)
+        # time.sleep_us(int(t2))
+        machine.sleep(int(t2/1000), 0)
         sync_start = chrono.read_us()
         rec = 0
         sack_rcv = 0
@@ -281,7 +282,7 @@ def start_transmissions(_pkts):
         acks = ""
         lora_sock.setblocking(True)
         lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[my_sf-5], power_mode=LoRa.ALWAYS_ON, bandwidth=my_bw, sf=my_sf)
-        print("started sync slot at (ms):", chrono.read_ms())
+        print("started sync slot at (ms):", chrono.read_ms() + (t1+t2)/1000)
         pycom.rgbled(white)
         lora_sock.settimeout(sync_slot/1e6)
         try:
@@ -296,19 +297,18 @@ def start_transmissions(_pkts):
                         sack_rcv = chrono.read_us()
                         wt = sack_rcv-sync_start-airtime_calc(my_sf,1,recv_pkg_len,my_bw_plain)*1000
                         print("Waiting time before receiving SACK (ms):", wt/1000)
-                        if (wt > guard) and (i > 1):
-                            clock_correct = wt - guard
-                        elif (wt < guard) and (i > 1):
-                            clock_correct = guard - wt
+                        # if (wt > guard) and (i > 1): # I have to fix this
+                        #     clock_correct = wt - guard
+                        # elif (wt < guard) and (i > 1):
+                        #     clock_correct = guard - wt
                         dev_id, leng, s_msg = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
-                        s_msg = str(s_msg)[2:]
-                        s_msg = s_msg[:-1]
+                        s_msg = str(s_msg)[2:][:-1]
                         (index, proc_gw, acks) = s_msg.split(":")
                         (index, proc_gw) = (int(index), int(proc_gw)*1000)
                         print("SACK received!", s_msg)
                         print(lora.stats())
                         lora.power_mode(LoRa.SLEEP)
-                        active_rx += (chrono.read_us() - sync_start)
+                        active_rx += (chrono.read_us() - sync_start - wt + guard) # not accurate
                         if (acks != ""):
                             acks = zfill(bin(int(acks, 16))[2:], index)
                             if (acks[my_slot] == "1"):
@@ -328,7 +328,6 @@ def start_transmissions(_pkts):
                                     i += 1
                         machine.idle()
                         rec = 1
-                        # adaptive SACK slot length
                         ack_lasted = (chrono.read_us()-sync_start)
                         if (i == 1): # what if the first packet is dropped. I have to fix this
                             clocks = [ack_lasted]
@@ -361,9 +360,8 @@ def start_transmissions(_pkts):
                     sync()
                     clock_correct = 0
         print("sync slot lasted (ms):", (chrono.read_us()-sync_start)/1000)
-        tas = chrono.read_us()-sack_rcv
-        print("time after SACK (ms):", tas/1000)
-        print("round lasted (ms):", (chrono.read_us()-start)/1000)
+        print("time after SACK (ms):", (chrono.read_us()-sack_rcv)/1000)
+        print("round lasted (ms):", (chrono.read_us()+t1+t2-start)/1000)
         print("transmitted/delivered/retransmitted/dropped:", i, succeeded, retrans, dropped)
         print("radio active time (rx/tx) (s):", active_rx/1e6, "/", active_tx/1e6)
         i += 1
@@ -375,9 +373,9 @@ def start_transmissions(_pkts):
     for x in range(3): # send it out 3 times
         lora.init(mode=LoRa.LORA, tx_iq=True, region=LoRa.EU868, frequency=freqs[7], power_mode=LoRa.TX_ONLY, bandwidth=LoRa.BW_125KHZ, sf=12, tx_power=7)
         pycom.rgbled(blue)
-        while (lora.ischannel_free(-90) == False):
-            print("Channel is busy!")
-            random_sleep(5)
+        # while (lora.ischannel_free(-90) == False):
+        #     print("Channel is busy!")
+        #     random_sleep(5)
         lora_sock.send(pkg)
         lora.power_mode(LoRa.SLEEP)
         random_sleep(5)
@@ -446,40 +444,40 @@ JoinEUI = "3efd4267ef71836a" # this could be random
 AppKey = AK[int(MY_ID)-11]
 DevNonce = 1
 lora_sock = socket.socket(socket.AF_LORA, socket.SOCK_RAW)
-lora_sock.setblocking(False)
+# lora_sock.setblocking(False)
 chrono = Timer.Chrono()
 
 # uncomment those two lines if you don't want OTA update
 chrono.start()
-start_transmissions(100)
+start_transmissions(1000)
 
-lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[0], power_mode=LoRa.ALWAYS_ON, bandwidth=LoRa.BW_125KHZ, sf=12)
-print("Waiting for commands...")
-pycom.rgbled(green)
-while(True):
-    recv_pkg = lora_sock.recv(30)
-    if (len(recv_pkg) > 2):
-        recv_pkg_id = recv_pkg[0]
-        recv_pkg_len = recv_pkg[1]
-        if (int(recv_pkg_id) == 0):
-            try: # the nodes are waiting for an init command of the form: 'IP_of_the_OTA_server:number_of_packets'. Check gateway-stats code
-                dev_id, leng, ippkts = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
-                ippkts = str(ippkts)[2:][:-1]
-                (ip, pkts) = ippkts.split(":")
-                pkts = int(pkts)
-                pycom.rgbled(blue)
-                if (my_slot == -1):
-                    random_sleep(20)
-                print("OTA over WLAN (IP):", ip)
-                OTA_update(ip)
-                chrono.start()
-                join_start = chrono.read_us()
-                # wlan.deinit()
-                start_transmissions(pkts)
-                print("...experiment done!")
-                lora_sock.setblocking(False)
-                lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[0], power_mode=LoRa.ALWAYS_ON, bandwidth=LoRa.BW_125KHZ, sf=12)
-                print("ready for a new one...")
-                pycom.rgbled(green)
-            except:
-                print("something went wrong!")
+# lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[0], power_mode=LoRa.ALWAYS_ON, bandwidth=LoRa.BW_125KHZ, sf=12)
+# print("Waiting for commands...")
+# pycom.rgbled(green)
+# while(True):
+#     recv_pkg = lora_sock.recv(30)
+#     if (len(recv_pkg) > 2):
+#         recv_pkg_id = recv_pkg[0]
+#         recv_pkg_len = recv_pkg[1]
+#         if (int(recv_pkg_id) == 0):
+#             try: # the nodes are waiting for an init command of the form: 'IP_of_the_OTA_server:number_of_packets'. Check gateway-stats code
+#                 dev_id, leng, ippkts = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
+#                 ippkts = str(ippkts)[2:][:-1]
+#                 (ip, pkts) = ippkts.split(":")
+#                 pkts = int(pkts)
+#                 pycom.rgbled(blue)
+#                 if (my_slot == -1):
+#                     random_sleep(20)
+#                 print("OTA over WLAN (IP):", ip)
+#                 OTA_update(ip)
+#                 chrono.start()
+#                 join_start = chrono.read_us()
+#                 # wlan.deinit()
+#                 start_transmissions(pkts)
+#                 print("...experiment done!")
+#                 lora_sock.setblocking(False)
+#                 lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[0], power_mode=LoRa.ALWAYS_ON, bandwidth=LoRa.BW_125KHZ, sf=12)
+#                 print("ready for a new one...")
+#                 pycom.rgbled(green)
+#             except:
+#                 print("something went wrong!")
