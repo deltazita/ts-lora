@@ -60,7 +60,6 @@ def random_sleep(max_sleep):
     arg = "byteorder='big'"
     t = int.from_bytes(crypto.getrandbits(32), arg)
     time.sleep(1+t%max_sleep) # wake-up at a random time
-    # machine.sleep((1+t%max_sleep)*1000, 0) # wake-up at a random time
 
 # this is borrowed from LoRaSim (https://www.lancaster.ac.uk/scc/sites/lora/lorasim.html)
 def airtime_calc(sf,cr,pl,bw):
@@ -235,7 +234,7 @@ def start_transmissions(_pkts):
     print("SACK slot length (ms):", sync_slot/1000)
     print("Gw processing time (ms):", int(proc_gw/1000))
     print("Time after SACK rec (ms):", (chrono.read_us()-sack_rcv)/1000)
-    # send data
+
     i = 1
     (succeeded, retrans, dropped, active_rx, active_tx) = (0, 0, 0, 0.0, 0.0)
     print("S T A R T")
@@ -255,7 +254,6 @@ def start_transmissions(_pkts):
         print("sleep time (ms):", t/1000)
         pycom.rgbled(off)
         time.sleep_us(t)
-        # machine.sleep(int(t/1000), 0)
         _thread.start_new_thread(generate_msg, ())
         pycom.rgbled(red)
         on_time = chrono.read_us()
@@ -263,7 +261,6 @@ def start_transmissions(_pkts):
         pkg = struct.pack(_LORA_PKG_FORMAT % len(msg), MY_ID, len(msg), msg)
         print("Sending packet of", len(pkg), "bytes at (ms):", (chrono.read_us()-start)/1000)
         lora_sock.send(pkg)
-        # print(lora.stats())
         pycom.rgbled(off)
         lora.power_mode(LoRa.SLEEP)
         active_tx += (chrono.read_us() - on_time)
@@ -296,9 +293,7 @@ def start_transmissions(_pkts):
                         sack_rcv = chrono.read_us()
                         wt = sack_rcv-sync_start-airtime_calc(my_sf,1,recv_pkg_len,my_bw_plain)*1000
                         print("Waiting time before receiving SACK (ms):", wt/1000)
-                        if (wt > guard) and (i > 1):
-                            clock_correct = wt - guard
-                        elif (wt < guard) and (i > 1):
+                        if (wt != guard) and (i > 1):
                             clock_correct = wt - guard
                         dev_id, leng, s_msg = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
                         s_msg = str(s_msg)[2:]
@@ -334,10 +329,7 @@ def start_transmissions(_pkts):
                             clocks = [ack_lasted]
                         else:
                             clocks.append(ack_lasted)
-                            sync_slot = 0
-                            for j in clocks:
-                                sync_slot += j
-                            sync_slot = int(sync_slot/len(clocks))
+                            sync_slot = int(sum(clocks)/len(clocks))
                             if (len(clocks) == 10):
                                 clocks = [sync_slot]
                         print("new sync slot length (ms):", sync_slot/1000)
