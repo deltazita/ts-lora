@@ -267,7 +267,7 @@ def start_transmissions(_pkts):
         pycom.rgbled(off)
         lora.power_mode(LoRa.SLEEP)
         active_tx += (chrono.read_us() - on_time)
-        t = int(round_length - (chrono.read_us() - start) - clock_correct)
+        t = int(round_length - (chrono.read_us() - start) + clock_correct)
         if t < 0:
             t = 0
             print("cannot align clock!")
@@ -299,7 +299,7 @@ def start_transmissions(_pkts):
                         if (wt > guard) and (i > 1):
                             clock_correct = wt - guard
                         elif (wt < guard) and (i > 1):
-                            clock_correct = guard - wt
+                            clock_correct = wt - guard
                         dev_id, leng, s_msg = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
                         s_msg = str(s_msg)[2:]
                         s_msg = s_msg[:-1]
