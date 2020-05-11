@@ -221,6 +221,7 @@ def start_transmissions(_pkts):
         join_request(my_sf)
     else:
         sync()
+    fpas = 1
     repeats = 0
     clock_correct = 0
     sync_slot = int(airtime_calc(my_sf,1,sack_bytes+2,my_bw_plain)*1000+guard+proc_gw)
@@ -249,7 +250,7 @@ def start_transmissions(_pkts):
             round_length = math.ceil(int(index)*(airt + 2*guard))
         else:
             round_length = math.ceil(duty_cycle_limit_slots*(airt + 2*guard))
-        round_length += proc_gw # gw proc+switch time (us)
+        round_length += proc_gw # gw proc time (us)
         t = int(my_slot*(airt + 2*guard) + guard - proc_and_switch) # sleep time before transmission
         print("sleep time (ms):", t/1000)
         pycom.rgbled(off)
@@ -290,52 +291,49 @@ def start_transmissions(_pkts):
                     recv_pkg_len = recv_pkg[1]
                     recv_pkg_id = recv_pkg[0]
                     if (int(recv_pkg_id) == (my_sf-5)):
-                        lora.power_mode(LoRa.SLEEP)
-                        active_rx += (chrono.read_us() - sync_start)
                         sack_rcv = chrono.read_us()
                         wt = sack_rcv-sync_start-airtime_calc(my_sf,1,recv_pkg_len,my_bw_plain)*1000
                         print("Waiting time before receiving SACK (ms):", wt/1000)
-                        if (wt != guard) and (i > 1):
+                        if (wt != guard) and (fpas == 0): # first packet after sync may delay a bit
                             clock_correct = wt - guard
-                        try:
-                            dev_id, leng, s_msg = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
-                            s_msg = str(s_msg)[2:]
-                            s_msg = s_msg[:-1]
-                            (index, proc_gw, acks) = s_msg.split(":")
-                            (index, proc_gw) = (int(index), int(proc_gw)*1000)
-                            print("SACK received!", s_msg)
-                            print(lora.stats())
-                            if (acks != ""):
-                                acks = zfill(bin(int(acks, 16))[2:], index)
-                                if (acks[my_slot] == "1"):
-                                    print("ACK!")
-                                    succeeded += 1
-                                    repeats = 0
-                                else:
-                                    print("I will repeat the last packet")
-                                    retrans += 1
-                                    repeats += 1
-                                    i -= 1
-                                    if (repeats == 4):
-                                        print("Packet dropped!")
-                                        repeats = 0
-                                        dropped += 1
-                                        retrans -= 1
-                                        i += 1
-                            machine.idle()
-                            rec = 1
-                            # adaptive SACK slot length
-                            ack_lasted = (chrono.read_us()-sync_start)
-                            if (i == 1): # what if the first packet is dropped. I have to fix this
-                                clocks = [ack_lasted]
+                        dev_id, leng, s_msg = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
+                        s_msg = str(s_msg)[2:][:-1]
+                        (index, proc_gw, acks) = s_msg.split(":")
+                        (index, proc_gw) = (int(index), int(proc_gw)*1000)
+                        print("SACK received!", s_msg)
+                        lora.power_mode(LoRa.SLEEP)
+                        active_rx += (chrono.read_us() - sync_start)
+                        print(lora.stats())
+                        if (acks != ""):
+                            acks = zfill(bin(int(acks, 16))[2:], index)
+                            if (acks[my_slot] == "1"):
+                                print("ACK!")
+                                succeeded += 1
+                                repeats = 0
                             else:
-                                clocks.append(ack_lasted)
-                                sync_slot = int(sum(clocks)/len(clocks))
-                                if (len(clocks) == 10):
-                                    clocks = [sync_slot]
-                            print("new sync slot length (ms):", sync_slot/1000)
-                        except:
-                            pass
+                                print("I will repeat the last packet")
+                                retrans += 1
+                                repeats += 1
+                                i -= 1
+                                if (repeats == 4):
+                                    print("Packet dropped!")
+                                    repeats = 0
+                                    dropped += 1
+                                    retrans -= 1
+                                    i += 1
+                        machine.idle()
+                        rec = 1
+                        fpas = 0
+                        # adaptive SACK slot length
+                        ack_lasted = (chrono.read_us()-sync_start)
+                        if (i == 1): # what if the first packet is dropped. I have to fix this
+                            clocks = [ack_lasted]
+                        else:
+                            clocks.append(ack_lasted)
+                            sync_slot = int(sum(clocks)/len(clocks))
+                            if (len(clocks) == 10):
+                                clocks = [sync_slot]
+                        print("new sync slot length (ms):", sync_slot/1000)
         except:
             if (rec == 0):
                 lora.power_mode(LoRa.SLEEP)
@@ -344,6 +342,7 @@ def start_transmissions(_pkts):
                 retrans += 1
                 repeats += 1
                 i -= 1
+                # clock_correct = -5000
                 if (repeats == 4):
                     print("Packet dropped!")
                     print("Synchronisation lost!")
@@ -355,9 +354,9 @@ def start_transmissions(_pkts):
                     time.sleep_us(int(round_length-sync_slot-proc_gw))
                     sync()
                     clock_correct = 0
+                    fpas = 1
         print("sync slot lasted (ms):", (chrono.read_us()-sync_start)/1000)
-        tas = chrono.read_us()-sack_rcv
-        print("time after SACK (ms):", tas/1000)
+        print("time after SACK (ms):", (chrono.read_us()-sack_rcv)/1000)
         print("round lasted (ms):", (chrono.read_us()-start)/1000)
         print("transmitted/delivered/retransmitted/dropped:", i, succeeded, retrans, dropped)
         print("radio active time (rx/tx) (s):", active_rx/1e6, "/", active_tx/1e6)
@@ -447,8 +446,8 @@ lora_sock.setblocking(False)
 chrono = Timer.Chrono()
 
 # uncomment those two lines if you don't want OTA update
-# chrono.start()
-# start_transmissions(100)
+chrono.start()
+start_transmissions(100)
 
 lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[0], power_mode=LoRa.ALWAYS_ON, bandwidth=LoRa.BW_125KHZ, sf=12)
 print("Waiting for commands...")
