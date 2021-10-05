@@ -2,6 +2,12 @@ Changelog
 
 TS-LoRa
 
+version 1.1.11
+- gateway-stats is no longer needed
+- gateway-req is now responsible for the join requests, the experiments initialization, and the collection of statistics
+- all scripts are now using Python 3
+- some minor corrections
+
 version 1.1.10
 - added adaptive correction time
 - latest gateway_data code

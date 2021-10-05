@@ -3,7 +3,7 @@
 #
 # Distributed under GNU GPLv3
 #
-# Tested with firmware v1.20.1
+# Tested with firmware v1.20.1 (experimental)
 
 import os
 import sys

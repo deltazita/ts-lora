@@ -3,7 +3,7 @@
 #
 # Distributed under GNU GPLv3
 #
-# Tested with firmware v1.18.2
+# Tested with Pycom firmware v1.18.2 (legacy)
 
 import socket
 import struct
@@ -44,12 +44,12 @@ elif (my_bw_index == 2):
     my_bw_plain = 500
 
 wlan = WLAN(mode=WLAN.STA)
-print("My MAC address is:", ubinascii.hexlify(wlan.mac(),':').decode())
+print("MAC address:", ubinascii.hexlify(wlan.mac(),':').decode('utf-8'))
 if not wlan.isconnected():
     wlan.connect('rasp', auth=(WLAN.WPA2, 'lalalala'), timeout=5000)
     while not wlan.isconnected():
         machine.idle()
-print("I got IP"+wlan.ifconfig()[0])
+print("I got IP "+wlan.ifconfig()[0])
 
 # this is borrowed from LoRaSim (https://www.lancaster.ac.uk/scc/sites/lora/lorasim.html)
 def airtime_calc(sf,cr,pl,bw):
@@ -82,8 +82,7 @@ def update_index():
         conn, addr = wlan_s.accept()
         print('Got connection from', addr)
         data = conn.recv(512)
-        data = str(data)[2:]
-        data = data[:-1]
+        data = data.decode('utf-8')
         if (len(data) > 2):
             (id, nslot, AppSKey) = data.split(":")
             id = int(id)

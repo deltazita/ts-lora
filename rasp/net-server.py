@@ -1,4 +1,4 @@
-#!/usr/bin/python2.7
+#!/usr/bin/python3
 
 import socket
 import threading
@@ -26,19 +26,20 @@ server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.bind((bind_ip, bind_port))
 server.listen(5)  # max backlog of connections
 
-print 'Listening on {}:{}'.format(bind_ip, bind_port)
+print("Listening on:", bind_ip, bind_port)
 
 def handle_client_connection(client_socket):
     request = client_socket.recv(1024)
-    print 'Received {}'.format(request)
+    request = request.decode('utf-8')
+    print ("Received: ", request)
     (id, index, mac, JoinNonce, JoinEUI, DevNonce) = str(request).split(":")
     # compute a DevAddr
     DevAddr = hex(random.getrandbits(32))[2:][:-1]
-    text = "".join([DevAddr, mac])
+    text = "".join([str(DevAddr), str(mac)])
     while (len(text) < 8):
         text = "".join([text,"0"])
     thash = hashlib.sha256()
-    thash.update(text)
+    thash.update(text.encode('utf-8'))
     thash = thash.digest()
     slot = (int(binascii.hexlify(thash), 16)) % S
     while(slot != int(index)):
@@ -47,7 +48,7 @@ def handle_client_connection(client_socket):
         while (len(text) < 8):
             text = "".join([text,"0"])
         thash = hashlib.sha256()
-        thash.update(text)
+        thash.update(text.encode('utf-8'))
         thash = thash.digest()
         slot = (int(binascii.hexlify(thash), 16)) % S
     # compute the AppSKey
@@ -56,15 +57,18 @@ def handle_client_connection(client_socket):
     while (len(text) < 32):
         text = "".join([text,"0"])
     encryptor = AES.new(AppKey, AES.MODE_ECB)
-    AppSKey = encryptor.encrypt(binascii.unhexlify(text))
-    client_socket.send(str(id)+":"+str(DevAddr)+":"+AppSKey)
+    AppSKey = encryptor.encrypt(binascii.unhexlify(text.encode('utf-8')))
+    msg = str(id)+":"+str(DevAddr)+":"
+    print("Responded: "+msg+"AppSKey")
+    client_socket.send( bytes(msg.encode('utf-8'))+AppSKey ) # AppSKey is already in bytes
     client_socket.close()
+
 
 while True:
     client_sock, address = server.accept()
-    print 'Accepted connection from {}:{}'.format(address[0], address[1])
+    print ("Accepted connection from: ", address[0], address[1])
     client_handler = threading.Thread(
         target=handle_client_connection,
-        args=(client_sock,)  # without comma you'd get a... TypeError: handle_client_connection() argument after * must be a sequence, not _socketobject
+        args=(client_sock,)
     )
     client_handler.start()

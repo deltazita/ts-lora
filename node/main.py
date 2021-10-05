@@ -3,7 +3,7 @@
 #
 # Distributed under GNU GPLv3
 #
-# Tested with firmware v1.18.2
+# Tested with Pycom firmware v1.18.2 (legacy)
 
 import os
 import sys
@@ -32,7 +32,7 @@ from OTA import WiFiOTA
 ### FUNCTIONS ###
 
 def OTA_update(_ip):
-    ota = WiFiOTA("Guests@Tyndall", "", _ip, 8000)
+    ota = WiFiOTA("OTA_SSID", "", _ip, 8000)
     print("Performing OTA")
     pycom.rgbled(0xDB7093)
     try:
@@ -45,13 +45,13 @@ def OTA_update(_ip):
 
 def get_id():
     global MY_ID
-    my_py_id = str(binascii.hexlify(machine.unique_id()))[2:][:-1]
+    my_py_id = binascii.hexlify(machine.unique_id()).decode('utf-8')
     f = open("ids","r")
     for line in f:
         fields = line.split(" ")
         if (fields[0] == my_py_id):
             MY_ID = int(fields[1])
-    print("Pycom id:", my_py_id, "My id:", MY_ID)
+    print("Pycom id:", my_py_id, "-> My id:", MY_ID)
 
 def zfill(s, width):
     return '{:0>{w}}'.format(s, w=width)
@@ -115,9 +115,8 @@ def join_request(_sf):
                     recv_pkg_id = recv_pkg[0]
                     if (int(recv_pkg_id) == 1):
                         dev_id, leng, rmsg = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
-                        print('Device: %d - Pkg:  %s' % (dev_id, rmsg))
-                        rmsg = str(rmsg)[2:]
-                        rmsg = rmsg[:-1]
+                        print('Received response from', dev_id, rmsg)
+                        rmsg = rmsg.decode('utf-8')
                         (dev_id, DevAddr, JoinNonce) = str(rmsg).split(":")
                         if (int(dev_id) == int(MY_ID)):
                             pycom.rgbled(blue)
@@ -139,6 +138,7 @@ def join_request(_sf):
         text = "".join([str(text),"0"])
     encryptor = AES(AppKey, AES.MODE_ECB)
     AppSKey = encryptor.encrypt(binascii.unhexlify(text))
+    print(AppSKey)
     # slot generation
     text = "".join([DevAddr, DevEUI])
     thash = uhashlib.sha256()
@@ -174,8 +174,7 @@ def sync():
             if (int(recv_pkg_id) == (my_sf-5)):
                 sack_rcv = chrono.read_us()
                 dev_id, leng, s_msg = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
-                s_msg = str(s_msg)[2:]
-                s_msg = s_msg[:-1]
+                s_msg = s_msg.decode('utf-8')
                 sack_bytes = recv_pkg_len
                 (index, proc_gw, acks) = s_msg.split(":")
                 (index, proc_gw) = (int(index), int(proc_gw)*1000)
@@ -297,7 +296,7 @@ def start_transmissions(_pkts):
                         if (wt != guard) and (fpas == 0): # first packet after sync may delay a bit
                             clock_correct = wt - guard
                         dev_id, leng, s_msg = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
-                        s_msg = str(s_msg)[2:][:-1]
+                        s_msg = s_msg.decode('utf-8')
                         (index, proc_gw, acks) = s_msg.split(":")
                         (index, proc_gw) = (int(index), int(proc_gw)*1000)
                         print("SACK received!", s_msg)
@@ -367,7 +366,7 @@ def start_transmissions(_pkts):
     stat_msg = str(i-1)+":"+str(succeeded)+":"+str(retrans)+":"+str(dropped)+":"+str(active_rx/1e6)+":"+str(active_tx/1e6)
     pkg = struct.pack(_LORA_PKG_FORMAT % len(stat_msg), MY_ID, len(stat_msg), stat_msg)
     for x in range(3): # send it out 3 times
-        lora.init(mode=LoRa.LORA, tx_iq=True, region=LoRa.EU868, frequency=freqs[7], power_mode=LoRa.TX_ONLY, bandwidth=LoRa.BW_125KHZ, sf=12, tx_power=7)
+        lora.init(mode=LoRa.LORA, tx_iq=True, region=LoRa.EU868, frequency=freqs[0], power_mode=LoRa.TX_ONLY, bandwidth=LoRa.BW_125KHZ, sf=12, tx_power=7)
         pycom.rgbled(blue)
         while (lora.ischannel_free(-90) == False):
             print("Channel is busy!")
@@ -380,7 +379,7 @@ def start_transmissions(_pkts):
 
 ### MAIN ###
 
-MY_ID = 0x00 # to be filled in get_id
+MY_ID = 0x0B # to be filled in get_id
 pycom.heartbeat(False)
 get_id()
 bt = Bluetooth()
@@ -406,7 +405,7 @@ proc_gw = 4000 # gw default (minimum) processing time (us)
 msg = crypto.getrandbits(packet_size*8) # just a random packet
 while (len(msg) > packet_size): # just correct the rounding
     msg = msg[:-1]
-print("Packet size =", len(msg))
+print("Packet size =", len(msg), "bytes")
 (retrans, succeeded, dropped) = (0, 0, 0)
 freqs = [868100000, 868300000, 868500000, 867100000, 867300000, 867500000, 867700000, 867900000]
 if (my_bw_index == 0):
@@ -436,7 +435,7 @@ blue = 0x0000FF
 white = 0xFFFAFA
 
 lora = LoRa(mode=LoRa.LORA, rx_iq=True, frequency=freqs[my_sf-5], region=LoRa.EU868, power_mode=LoRa.SLEEP, bandwidth=my_bw, sf=my_sf)
-DevEUI = str(binascii.hexlify(lora.mac()))[2:][:-1]
+DevEUI = binascii.hexlify(lora.mac()).decode('utf-8')
 print("LoRa DevEUI:", DevEUI)
 JoinEUI = "3efd4267ef71836a" # this could be random
 AppKey = AK[int(MY_ID)-11]
@@ -445,9 +444,9 @@ lora_sock = socket.socket(socket.AF_LORA, socket.SOCK_RAW)
 lora_sock.setblocking(False)
 chrono = Timer.Chrono()
 
-# uncomment those two lines if you don't want OTA update
-chrono.start()
-start_transmissions(100)
+# uncomment those two lines if you don't want to use the init_exp.py script (additional changes on gw_req are needed)
+# chrono.start()
+# start_transmissions(100)
 
 lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[0], power_mode=LoRa.ALWAYS_ON, bandwidth=LoRa.BW_125KHZ, sf=12)
 print("Waiting for commands...")
@@ -457,20 +456,20 @@ while(True):
     if (len(recv_pkg) > 2):
         recv_pkg_id = recv_pkg[0]
         recv_pkg_len = recv_pkg[1]
-        if (int(recv_pkg_id) == 0):
+        if (int(recv_pkg_id) == 1):
             try: # the nodes are waiting for an init command of the form: 'IP_of_the_OTA_server:number_of_packets'. Check gateway-stats code
                 dev_id, leng, ippkts = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
-                ippkts = str(ippkts)[2:][:-1]
+                ippkts = ippkts.decode('utf-8')
                 (ip, pkts) = ippkts.split(":")
                 pkts = int(pkts)
                 pycom.rgbled(blue)
                 if (my_slot == -1):
                     random_sleep(20)
-                print("OTA over WLAN (IP):", ip)
-                OTA_update(ip)
+                # uncomment the following 2 lines if you use OTA
+                # print("OTA over WLAN (IP):", ip)
+                # OTA_update(ip)
                 chrono.start()
                 join_start = chrono.read_us()
-                # wlan.deinit()
                 start_transmissions(pkts)
                 print("...experiment done!")
                 lora_sock.setblocking(False)
