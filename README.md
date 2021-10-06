@@ -10,10 +10,9 @@ The code has been designed for and tested on Pycom Lopy4 and Fipy devices with S
 
 To run this code you will need at least 3 Pycom devices with LoRa and Wifi support (2 for the gateways + 1 node). 
 
-Modifications may be needed to adjust the scenarios to your own needs. All the code except of the Raspberry Pi TCP server script is strictly licensed under the GNU GPL v3 (see LICENSE file).
+Modifications may be needed to adjust the scenarios to your own needs (see SETUP file for a recommended setup). All the code except of the Raspberry Pi scripts is strictly licensed under the GNU GPL v3 (see LICENSE file).
 
-The implementation constitutes a proof-of-concept and it can be used by researchers to duplicate the experimental setup used in the papers above.
-You can modify the implementation according to your needs (see SETUP file)
+The implementation constitutes a proof-of-concept and it can be used by researchers to replicate the experimental setup used in the papers above.
 
 Features:
 - Time-slotted LoRa transmissions
