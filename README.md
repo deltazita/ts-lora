@@ -28,7 +28,6 @@ Features:
 
 Limitations / Work in progress:
 - Two or more 1-channel gateways must currently be used. 
-- No data encryption is currently performed but the keys are calculated. 
 - Python's pack and unpack struct functions are currently used to send data. 
 - Downlink transmissions are not encrypted
 

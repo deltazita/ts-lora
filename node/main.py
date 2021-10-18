@@ -89,6 +89,7 @@ def join_request(_sf):
     global AppKey
     global DevNonce
     global AppSKey
+    # SF is added because 1-channel/SF gws are used
     rmsg = DevEUI+":"+JoinEUI+":"+str(DevNonce)+":"+str(_sf)
     pkg = struct.pack(_LORA_PKG_FORMAT % len(rmsg), MY_ID, len(rmsg), rmsg)
     i = 0
@@ -100,14 +101,14 @@ def join_request(_sf):
             time.sleep(1)
         lora_sock.send(pkg)
         active_tx += chrono.read_ms()-start
-        print("Request sent!", pkg)
+        print("Join request sent!")
         time.sleep_ms(100)
         lora_sock.setblocking(True)
         lora.init(mode=LoRa.LORA, rx_iq=True, region=LoRa.EU868, frequency=freqs[1], power_mode=LoRa.ALWAYS_ON, bandwidth=LoRa.BW_125KHZ, sf=12)
         start = chrono.read_ms()
         pycom.rgbled(green)
-        lora_sock.settimeout(5)
         try:
+            lora_sock.settimeout(10)
             while (True):
                 recv_pkg = lora_sock.recv(50)
                 if (len(recv_pkg) > 2):
@@ -117,7 +118,7 @@ def join_request(_sf):
                         dev_id, leng, rmsg = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
                         print('Received response from', dev_id, rmsg)
                         rmsg = rmsg.decode('utf-8')
-                        (dev_id, DevAddr, JoinNonce) = str(rmsg).split(":")
+                        (dev_id, DevAddr, JoinNonce) = rmsg.split(":")
                         if (int(dev_id) == int(MY_ID)):
                             pycom.rgbled(blue)
                             lora.power_mode(LoRa.SLEEP)
@@ -126,6 +127,7 @@ def join_request(_sf):
                             i = 1
                             break
         except:
+            print("No answer received!")
             if (i == 0):
                 lora.power_mode(LoRa.SLEEP)
                 active_rx += chrono.read_ms()-start
@@ -134,18 +136,21 @@ def join_request(_sf):
 
     # AppSKey generation
     text = "".join( [AppKey[:2], JoinNonce, JoinEUI, str(DevNonce)] )
-    while (len(str(text)) < 32):
-        text = "".join([str(text),"0"])
+    while (len(text) < 32):
+        text = "".join([text,"0"])
     encryptor = AES(AppKey, AES.MODE_ECB)
-    AppSKey = encryptor.encrypt(binascii.unhexlify(text))
-    print(AppSKey)
+    try:
+        AppSKey = encryptor.encrypt(binascii.unhexlify(text))
+    except:
+        print("wrong text size!")
+    print("Length of the text and AppSKey:", len(text), len(AppSKey))
     # slot generation
     text = "".join([DevAddr, DevEUI])
     thash = uhashlib.sha256()
     thash.update(text)
     thash = int(ubinascii.hexlify(thash.digest()), 16)
     my_slot = thash % S
-    print("Slot =", my_slot, "DevAddr = ", DevAddr)
+    print("Slot =", my_slot, "DevAddr =", DevAddr)
     print("joining the network lasted (ms):", chrono.read_ms()-join_start)
     sync()
 
@@ -212,8 +217,8 @@ def start_transmissions(_pkts):
     airt = int(airtime_calc(my_sf,1,packet_size+2,my_bw_plain)*1000)
     duty_cycle_limit_slots = math.ceil(100*airt/(airt + 2*guard))
     proc_and_switch = 12000 # time for preparing the packet and switch radio mode (us)
-    if (int(MY_ID) == 22 or int(MY_ID) == 34): # fipy nodes switch faster
-        proc_and_switch = 10000
+    # if (int(MY_ID) == 22 or int(MY_ID) == 34): # fipy nodes switch faster
+        # proc_and_switch = 10000
     chrono.reset()
     if (my_slot == -1):
         join_start = chrono.read_us()
@@ -255,6 +260,10 @@ def start_transmissions(_pkts):
         pycom.rgbled(off)
         time.sleep_us(t)
         _thread.start_new_thread(generate_msg, ())
+        cipher = AES(AppSKey, AES.MODE_ECB)
+        # print("Before encryption:", msg)
+        msg = cipher.encrypt(msg)
+        # print("After encryption:", msg)
         pycom.rgbled(red)
         on_time = chrono.read_us()
         lora.init(mode=LoRa.LORA, tx_iq=True, region=LoRa.EU868, frequency=freqs[my_sf-5], power_mode=LoRa.TX_ONLY, bandwidth=my_bw, sf=my_sf, tx_power=14)
@@ -462,9 +471,10 @@ while(True):
                 ippkts = ippkts.decode('utf-8')
                 (ip, pkts) = ippkts.split(":")
                 pkts = int(pkts)
-                pycom.rgbled(blue)
+                print("Starting experiment with", pkts, "packets")
                 if (my_slot == -1):
                     random_sleep(20)
+                pycom.rgbled(blue)
                 # uncomment the following 2 lines if you use OTA
                 # print("OTA over WLAN (IP):", ip)
                 # OTA_update(ip)

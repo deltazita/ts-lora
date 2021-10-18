@@ -15,6 +15,8 @@ import time
 import _thread
 from machine import Timer
 import math
+from crypto import AES
+import crypto
 
 # Colors
 off = 0x000000
@@ -138,8 +140,11 @@ def receive_data():
                     dev_id, leng, msg = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
                     if (len(msg) == packet_size): # format check
                         received += 1
-                        # print('Received from: %d' % dev_id)
-                        print(dev_id, lora.stats())
+                        print("Received", msg, "from:", dev_id)
+                        # print(dev_id, lora.stats())
+                        cipher = AES(KEY[dev_id], AES.MODE_ECB)
+                        orig = cipher.decrypt(msg)
+                        # print("Decrypted text:", orig)
                         acks.append(str(int(dev_id)))
                         pycom.rgbled(off)
         print(received, "packets received")
