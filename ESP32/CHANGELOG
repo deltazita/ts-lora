@@ -1,0 +1,24 @@
+v1.0.1_ESP32 (20/11/2022)
+- fixed some halts in lora receive mode
+- fixed import time error in gw req and data
+- fixed the start() overflow in chrono lib
+- revised gw-req code
+- removed unnecessary variables
+- added some led notifications
+- some IPs have been changed due to a new testing environment. Revise accordingly
+- tested with 1 node, 100 pkts, and SF7
+- CHANGELOG added
+
+v1.0.0_ESP32 (17/11/2022)
+- first release for native ESP32 based on the last Pycom-based release
+- revised all code around a new lora lib. It seems to work well with Heltec V2 @ 433MHz
+- fixed a lora lib error preventing LoRa module to start up
+- created a new chrono lib
+- imported an oled lib and made up function
+- new lora struct pack and unpack calls
+- new sync timers without sockets (work in progress)
+- revised net_server script
+- fixed some code inconsistencies
+Issues:
+- tested with TTGO @ 915: some corrupted data over lora (probably a lib incompatibility with SX1278?)
+- data gw halts after 201 rounds due to a ticks_us overflow in chrono lib

@@ -21,6 +21,8 @@ class Chrono:
             self.now = self.end
         else:
             raise ChronoException('not started')
+        if (self.now - self.strt < 0):
+            return (1073741823 - self.strt + self.now) # MAX_TICKS is 2^30-1
         return (self.now - self.strt)/order
 
     def read_ms(self):

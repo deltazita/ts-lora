@@ -1,7 +1,7 @@
 # https://github.com/wybiral/micropython-lora
 import gc
 from machine import Pin
-from time import sleep
+import time
 
 TX_BASE_ADDR = 0x00
 RX_BASE_ADDR = 0x00

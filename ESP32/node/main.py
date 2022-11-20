@@ -7,12 +7,10 @@
 
 import os
 import sys
-import socket
 import time
 import struct
 from lora import LoRa
 import machine
-import binascii
 import ubinascii
 import math
 import uhashlib
@@ -92,10 +90,9 @@ def req_handler(recv_pkg):
             if (int(dev_id) == int(MY_ID)):
                 oled_lines("TS-LoRa", "ED SF7", str(MY_ID), "Rcved join accept", " ")
 
-def join_request(_sf):
+def join_request():
     global lora
     global DevEUI
-    global lora_sock
     global active_tx
     global active_rx
     global chrono
@@ -103,16 +100,15 @@ def join_request(_sf):
     global AppKey
     global DevNonce
     global AppSKey
-    rmsg = hex(DevEUI)+hex(JoinEUI)+str(DevNonce)+str(_sf)
-    print(MY_ID, len(rmsg), "1", hex(DevEUI), hex(JoinEUI), DevNonce, _sf)
-    pkg = struct.pack("BBBQQIB", MY_ID, len(rmsg), 0x01, DevEUI, JoinEUI, DevNonce, _sf)
+    lora.set_spreading_factor(12)
+    lora.set_frequency(freqs[0])
+    rmsg = hex(DevEUI)+hex(JoinEUI)+str(DevNonce)+str(my_sf)
+    print(MY_ID, len(rmsg), "1", hex(DevEUI), hex(JoinEUI), DevNonce, my_sf)
+    pkg = struct.pack("BBBQQIB", MY_ID, len(rmsg), 0x01, DevEUI, JoinEUI, DevNonce, my_sf)
     while (True):
         led.value(1)
-        lora.set_spreading_factor(12)
-        lora.set_frequency(freqs[0])
+        lora.standby()
         start = chrono.read_ms()
-        # while(lora.ischannel_free(-90) == False):
-            # time.sleep(1)
         lora.send(pkg)
         active_tx += chrono.read_ms()-start
         print("Join request sent!")
@@ -124,17 +120,15 @@ def join_request(_sf):
         while(chrono.read_ms() - start < 5000):
             lora.recv()
             lora.on_recv(req_handler)
+        lora.sleep()
         if (str(DevAddr) == ""):
             print("No answer received!")
-            # lora.power_mode(LoRa.SLEEP)
             active_rx += chrono.read_ms()-start
             random_sleep(5)
             DevNonce += 1
         else:
-            # lora.power_mode(LoRa.SLEEP)
             active_rx += chrono.read_ms()-start
             start = -10000
-            lora.standby()
             break
 
     # AppSKey generation
@@ -158,7 +152,6 @@ def join_request(_sf):
 def sync_handler(recv_pkg):
     global lora
     global index
-    global lora_sock
     global active_tx
     global active_rx
     global chrono
@@ -177,13 +170,13 @@ def sync_handler(recv_pkg):
 def sync():
     global lora
     global index
-    global lora_sock
     global active_tx
     global active_rx
     global chrono
     global sack_rcv
     lora.set_spreading_factor(my_sf)
     lora.set_frequency(freqs[my_sf-5])
+    lora.standby()
     sync_start = chrono.read_us()
     sack_rcv = 0
     index = 0
@@ -255,7 +248,7 @@ def start_transmissions(_pkts):
     chrono.reset()
     if (my_slot == -1):
         join_start = chrono.read_us()
-        join_request(my_sf)
+        join_request()
     else:
         sync()
     fpas = 1
@@ -402,6 +395,30 @@ def start_transmissions(_pkts):
     #     random_sleep(5)
     # led.value(0)
 
+def init_handler(recv_pkg):
+    print(recv_pkg)
+    if (len(recv_pkg) > 2):
+        recv_pkg_id = recv_pkg[0]
+        recv_pkg_len = recv_pkg[1]
+        if (int(recv_pkg_id) == 1):
+            dev_id, leng, ippkts = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
+            ippkts = ippkts.decode('utf-8')
+            pkts = int(ippkts)
+            print("Starting experiment with", pkts, "packets")
+            if (my_slot == -1):
+                random_sleep(20)
+            led.value(1)
+            # uncomment the following 2 lines if you use OTA
+            # print("OTA over WLAN (IP):", ip)
+            # OTA_update(ip)
+            chrono.start()
+            join_start = chrono.read_us()
+            start_transmissions(pkts)
+            print("...experiment done!")
+            lora.set_spreading_factor(12)
+            lora.set_frequency(freqs[0])
+            lora.standby()
+            print("ready for a new one...")
 
 ### MAIN ###
 
@@ -489,38 +506,10 @@ AppKey = AK[int(MY_ID)-11]
 DevNonce = 0x00000001 # 32 bit
 chrono = Chrono()
 
-# uncomment those two lines if you don't want to use the init_exp.py script (additional changes on gw_req are needed)
+# uncomment the following two lines if you don't want to use the init_exp.py script (additional changes on gw_req are needed)
 chrono.start()
 start_transmissions(100)
-
-def init_handler(recv_pkg):
-    print(recv_pkg)
-    # lora.recv()
-    if (len(recv_pkg) > 2):
-        recv_pkg_id = recv_pkg[0]
-        recv_pkg_len = recv_pkg[1]
-        if (int(recv_pkg_id) == 1):
-            dev_id, leng, ippkts = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
-            ippkts = ippkts.decode('utf-8')
-            pkts = int(ippkts)
-            print("Starting experiment with", pkts, "packets")
-            if (my_slot == -1):
-                random_sleep(20)
-            led.value(1)
-            # uncomment the following 2 lines if you use OTA
-            # print("OTA over WLAN (IP):", ip)
-            # OTA_update(ip)
-            chrono.start()
-            join_start = chrono.read_us()
-            start_transmissions(pkts)
-            print("...experiment done!")
-            lora.set_spreading_factor(12)
-            lora.set_frequency(freqs[0])
-            lora.standby()
-            print("ready for a new one...")
-
-lora.set_spreading_factor(12)
-lora.set_frequency(freqs[0])
+#
 print("Waiting for commands...")
 oled_lines("TS-LoRa", "ED SF7", "Waiting for commands", " ", " ")
 while(True):

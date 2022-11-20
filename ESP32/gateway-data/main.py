@@ -112,17 +112,17 @@ def update_index():
     global index
     global slot
     global KEY
-    host = '192.168.0.'+str(int(MY_ID))
+    host = '192.168.1.'+str(my_sf)
     port = 8000
     wlan_s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     print("WiFi socket created.")
     wlan_s.bind((host, port))
-    wlan_s.listen(5)
+    wlan_s.listen(150)
     while (True):
         conn, addr = wlan_s.accept()
         print('Got connection from', addr)
-        data = conn.recv(512)
-        if (len(data) > 2):
+        data = conn.recv(256)
+        if len(data) > 2:
             (id, leng, nslot, AppSKey) = struct.unpack("BBB%ds" % data[1], data)
             id = int(id)
             nslot = int(nslot)
@@ -137,9 +137,6 @@ def update_index():
     wlan_s.close()
 
 def handler(recv_pkg):
-    global index
-    global guard
-    global slot
     global packet_size
     global received
     global acks
@@ -152,7 +149,7 @@ def handler(recv_pkg):
             if (len(msg) == packet_size): # format check
                 received += 1
                 print("Received", msg, "from:", dev_id)
-                msg = aes(KEY[dev_id], 1).encrypt(msg)
+                msg = aes(KEY[int(dev_id)], 1).encrypt(msg)
                 print("Decrypted text:", msg)
                 acks.append(str(int(dev_id)))
 
@@ -173,7 +170,7 @@ def receive_data():
     lora.standby()
     chrono = Chrono()
     chrono.start()
-    i = 0x0001
+    i = 0x00000001
     while(True):
         print(i, "----------------------------------------------------")
         print("Net size is:", index+1)
@@ -190,9 +187,8 @@ def receive_data():
         while ((chrono.read_us() - round_start) < round_length-(airt + 2*guard)): # kill the last slot
             lora.recv()
             lora.on_recv(handler)
-
-        lora.standby()
-        print(received, "packets received")
+        lora.sleep()
+        print(received, "packet(s) received")
         rec_lasted = chrono.read_us()-rec_start
         if (rec_lasted < round_length):
             print("I'll sleep a bit to align with the round length")
@@ -217,6 +213,7 @@ def receive_data():
         time.sleep_us(int(3*guard/2))
         data = str(index+1)+str(int(proc_t/1000))+hex(ack_msg)
         pkg = struct.pack("BBBfI", MY_ID, len(data), index+1, proc_t, ack_msg)
+        lora.standby()
         led.value(1)
         lora.send(pkg)
         print("Sent sync: "+hex(ack_msg))

@@ -16,7 +16,7 @@ import _thread
 import uerrno
 from machine import Timer
 import sys
-from machine import SoftI2C, Pin, SPI
+from machine import SoftI2C, Pin, SPI, reset
 from lora import LoRa
 import ssd1306
 from time import sleep
@@ -99,74 +99,79 @@ def handler(x):
     global JoinNonce
     global stats
     global registered
-    # print(x[2])
+    print(x[0], x[2])
+    # print(x)
     if (len(x) > 2) and (x[2] == 1):
+        led.value(1)
         try:
             (dev_id, leng, ptype, mac, JoinEUI, DevNonce, req_sf) = struct.unpack("BBBQQIB", x)
             print(str(dev_id), str(leng), str(ptype), hex(mac), hex(JoinEUI), str(DevNonce), str(req_sf))
-            if (req_sf > 12):
-                raise
         except:
             print("could not unpack!")
             exp_is_running = 0
+            led.value(0)
         else:
-            if (ptype == 1):  # the packet is a join request
-                if (len(hex(mac)+hex(JoinEUI)+str(DevNonce)+str(req_sf)) != leng):
-                    print("wrong packet!")
-                print("Received a join request from", dev_id)
-                exists = 0
-                slot = 0
-                for n in registered:
-                    (id, nslot) = n
-                    if (int(dev_id) == id):
-                        exists = 1
-                        slot = nslot
-                if (exists == 0):
-                    slot = index[req_sf]
-                    index[req_sf] += 1
-                    registered.append([int(dev_id), slot])
-                JoinNonce[int(dev_id)] += 1
+            if (ptype != 1):  # the packet is a join request
+                raise
+            if (len(hex(mac)+hex(JoinEUI)+str(DevNonce)+str(req_sf)) != leng):
+                print("wrong packet!")
+            print("Received a join request from", dev_id)
+            exists = 0
+            slot = 0
+            for n in registered:
+                (id, nslot) = n
+                if (int(dev_id) == id):
+                    exists = 1
+                    slot = nslot
+            if (exists == 0):
+                slot = index[req_sf]
+                index[req_sf] += 1
+                registered.append([int(dev_id), slot])
+            JoinNonce[int(dev_id)] += 1
+            try:
+                # send/receive data to/from Raspberry Pi
+                wlan_s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                wlan_s.connect(('192.168.1.202', 8000))
+            except:
+                print("Connection to RPi failed!")
+                wlan_s.close()
+                led.value(0)
+            else:
+                print(str(dev_id)+":"+str(slot)+":"+hex(mac)[2:]+":"+str(JoinNonce[dev_id])+":"+hex(JoinEUI)[2:]+":"+str(DevNonce))
+                wlan_s.send(str(dev_id)+":"+str(slot)+":"+hex(mac)[2:]+":"+
+                            str(JoinNonce[dev_id])+":"+hex(JoinEUI)[2:]+":"+str(DevNonce))
+                msg = wlan_s.recv(512)
                 try:
-                    # send/receive data to/from Raspberry Pi
-                    wlan_s = socket.socket(
-                        socket.AF_INET, socket.SOCK_STREAM)
-                    wlan_s.connect(('192.168.0.254', 8000))
+                    (rdev_id, leng, DevAddr, AppSkey) = struct.unpack("BBI%ds" % msg[1], msg)
+                    print("Received from RPi:", rdev_id, hex(DevAddr), AppSkey)
                 except:
-                    print("Connection to RPi failed!")
+                    print("wrong RPi packet format!")
                     wlan_s.close()
+                    led.value(0)
                 else:
-                    print(str(dev_id)+":"+str(slot)+":"+hex(mac)[2:]+":"+str(JoinNonce[dev_id])+":"+hex(JoinEUI)[2:]+":"+str(DevNonce))
-                    wlan_s.send(str(dev_id)+":"+str(slot)+":"+hex(mac)[2:]+":"+
-                                str(JoinNonce[dev_id])+":"+hex(JoinEUI)[2:]+":"+str(DevNonce))
-                    msg = wlan_s.recv(512)
                     try:
-                        (rdev_id, leng, DevAddr, AppSkey) = struct.unpack("BBI%ds" % msg[1], msg)
-                        print("Received from RPi:", rdev_id, hex(DevAddr), AppSkey)
+                        # send registered node info to the data gateway
+                        pkt = struct.pack("BBB%ds" % len(AppSkey), dev_id, len(AppSkey), int(slot), AppSkey)
+                        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        s.connect(('192.168.1.'+str(req_sf), 8000))
+                        s.send(pkt)
                     except:
-                        print("wrong RPi packet format!")
+                        print("Data-gw socket error")
                         wlan_s.close()
+                        s.close()
+                        led.value(0)
                     else:
-                        try:
-                            # send registered node info to the data gateway
-                            pkt = struct.pack("BBB%ds" % len(AppSkey), dev_id, len(AppSkey), int(slot), AppSkey)
-                            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                            s.connect(('192.168.0.'+str(req_sf-5), 8000))
-                            s.send(pkt)
-                        except:
-                            print("Data-gw socket error")
-                            wlan_s.close()
-                            s.close()
-                        else:
-                            # send DevAddr and JoinNonce to the node
-                            msg = str(dev_id)+hex(DevAddr)[2:]+str(JoinNonce[dev_id])
-                            lora.set_frequency(freqs[1])
-                            pkg = struct.pack("BBBII", MY_ID, len(msg), dev_id, DevAddr, JoinNonce[dev_id])
-                            # I should encrypt that using node's AppKey
-                            lora.send(pkg)
-                            print("Responded with a join accept!")
-                            lora.set_frequency(freqs[0])
-                            wlan_s.close()
-                            s.close()
+                        # send DevAddr and JoinNonce to the node
+                        msg = str(dev_id)+hex(DevAddr)[2:]+str(JoinNonce[dev_id])
+                        lora.set_frequency(freqs[1])
+                        pkg = struct.pack("BBBII", MY_ID, len(msg), dev_id, DevAddr, JoinNonce[dev_id])
+                        # I should encrypt that using node's AppKey
+                        lora.send(pkg)
+                        print("Responded with a join accept!")
+                        lora.set_frequency(freqs[0])
+                        wlan_s.close()
+                        s.close()
+                        led.value(0)
     elif (len(x) > 2) and (x[2] == 2):  # the packet is a statistics packet
         try:
             (i, succeeded, retrans, dropped, rx, tx) = msg.split(":")
@@ -233,4 +238,5 @@ def exp_start():
                 print("wrong packet format!")
 
 #exp_start()  # run a wlan server to initiate a new experiment via the network server (RPi)
-_thread.start_new_thread(receive_req, ())
+# _thread.start_new_thread(receive_req, ())
+receive_req()
