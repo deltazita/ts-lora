@@ -79,6 +79,7 @@ def airtime_calc(sf,cr,pl,bw):
 def req_handler(recv_pkg):
     global DevAddr
     global JoinNonce
+    global oled_list
     # print(recv_pkg)
     if (len(recv_pkg) > 2):
         recv_pkg_len = recv_pkg[1]
@@ -88,7 +89,8 @@ def req_handler(recv_pkg):
             (id, leng, dev_id, DevAddr, JoinNonce) = struct.unpack("BBBII", recv_pkg)
             print('Received response from', id, dev_id, hex(DevAddr), JoinNonce)
             if (int(dev_id) == int(MY_ID)):
-                oled_lines("TS-LoRa", "ED SF7", str(MY_ID), "Rcved join accept", " ")
+                oled_list.append("Rcved join accept")
+                oled_lines()
 
 def join_request():
     global lora
@@ -100,6 +102,7 @@ def join_request():
     global AppKey
     global DevNonce
     global AppSKey
+    global oled_list
     lora.set_spreading_factor(12)
     lora.set_frequency(freqs[0])
     rmsg = hex(DevEUI)+hex(JoinEUI)+str(DevNonce)+str(my_sf)
@@ -114,7 +117,8 @@ def join_request():
         led.value(0)
         active_tx += chrono.read_ms()-start
         print("Join request sent!")
-        oled_lines("TS-LoRa", "ED SF7", str(MY_ID), "Join req. sent", " ")
+        oled_list.append("Join req. sent")
+        oled_lines()
         time.sleep_ms(100)
         lora.set_frequency(freqs[1])
         start = chrono.read_ms()
@@ -147,7 +151,8 @@ def join_request():
     thash = int(ubinascii.hexlify(thash.digest()), 16)
     my_slot = thash % S
     print("Slot =", my_slot, "DevAddr =", hex(DevAddr))
-    oled_lines("TS-LoRa", "ED SF7", "ID="+str(MY_ID)+", Slot="+str(my_slot), "Going to sync", " ")
+    oled_list.append("Slot="+str(my_slot))
+    oled_lines()
     print("joining the network lasted (ms):", chrono.read_ms()-join_start)
     sync()
 
@@ -167,6 +172,8 @@ def sync_handler(recv_pkg):
             sack_rcv = chrono.read_us()
             (id, leng, index, proc_gw, acks) = struct.unpack("BBBfI", recv_pkg)
             print("ACK!")
+            oled_list.append("Synchronized!")
+            oled_lines()
 
 def sync():
     global lora
@@ -175,14 +182,16 @@ def sync():
     global active_rx
     global chrono
     global sack_rcv
+    global oled_list
     lora.set_spreading_factor(my_sf)
     lora.set_frequency(freqs[my_sf-5])
     lora.standby()
     sync_start = chrono.read_us()
     sack_rcv = 0
     index = 0
-    oled_lines("TS-LoRa", "ED SF7", "ID="+str(MY_ID)+", Slot="+str(my_slot), "Waiting for SACK", " ")
-    print("Waiting for sync...")
+    oled_list.append("Waiting for SACK")
+    oled_lines()
+    print("Waiting for SACK...")
     while (index == 0):
         machine.idle()
         lora.recv()
@@ -210,6 +219,7 @@ def sack_handler(recv_pkg):
     global sync_start
     global fpas
     global acks
+    global oled_list
     # print(recv_pkg[0], recv_pkg[2])
     if (len(recv_pkg) > 2):
         recv_pkg_len = recv_pkg[1]
@@ -217,7 +227,8 @@ def sack_handler(recv_pkg):
         if (int(recv_pkg_id) == (my_sf-5)):
             sack_rcv = chrono.read_us()
             print("SACK received!", lora.get_rssi())
-            oled_lines("TS-LoRa", "ED SF7", "ID="+str(MY_ID), "Waiting for SACK", "SACK received")
+            oled_list.append("SACK received")
+            oled_lines()
             wt = sack_rcv-sync_start-airtime_calc(my_sf,1,recv_pkg_len,my_bw_plain)*1000
             print("Waiting time before receiving SACK (ms):", wt/1000)
             if (wt != guard) and (fpas == 0): # first packet after sync may delay a bit
@@ -240,15 +251,16 @@ def start_transmissions(_pkts):
     global retrans
     global dropped
     global join_start
-    global guard
     global sack_rcv
     global msg
     global sync_start
     global fpas
     global acks
     global clock_correct
+    global oled_list
     airt = int(airtime_calc(my_sf,1,packet_size+2,my_bw_plain)*1000)
-    duty_cycle_limit_slots = math.ceil(100*airt/(airt + 2*guard))
+    slot = airt + 2*guard
+    duty_cycle_limit_slots = math.ceil(100*airt/slot)
     proc_and_switch = 12000 # time for preparing the packet and switch radio mode (us)
     chrono.reset()
     if (my_slot == -1):
@@ -259,13 +271,15 @@ def start_transmissions(_pkts):
     fpas = 1
     repeats = 0
     clock_correct = 0
-    sync_slot = int(airtime_calc(my_sf,1,sack_bytes,my_bw_plain)*1000+2*guard)
+    default_sync_slot = int(airtime_calc(my_sf,1,sack_bytes,my_bw_plain)*1000+2*guard)
+    sync_slot = default_sync_slot
     clocks = [sync_slot]
     print("-----")
     print("MY SLOT:", my_slot)
     print("Net size:", index)
     print("Time on air (ms):", airt/1000)
     print("Guard time (ms):", guard/1000)
+    print("Slot size (us):", slot)
     print("Duty cycle slots:", duty_cycle_limit_slots)
     print("SACK slot length (ms):", sync_slot/1000)
     print("Gw processing time (ms):", proc_gw/1000)
@@ -277,13 +291,14 @@ def start_transmissions(_pkts):
         print(i, "----------------------------------------------------")
         chrono.reset()
         start = chrono.read_us()
-        oled_lines("TS-LoRa", "ED SF7", "ID="+str(MY_ID), "Round "+str(i), " ")
+        oled_list.append("Round "+str(i))
+        oled_lines()
         print("starting a new round at (ms):", start/1000)
         # calculate the time until the sack packet
         if (int(index) > duty_cycle_limit_slots):
-            round_length = math.ceil(int(index)*(airt + 2*guard))
+            round_length = math.ceil(index*slot + sync_slot + 100000)
         else:
-            round_length = math.ceil(duty_cycle_limit_slots*(airt + 2*guard))
+            round_length = math.ceil(duty_cycle_limit_slots*slot + default_sync_slot + 100000)
         # round_length += proc_gw # gw proc time (us)
         print("Round length (ms):", round_length/1000)
         t = int(my_slot*(airt + 2*guard) + guard - proc_and_switch) # sleep time before transmission
@@ -293,7 +308,7 @@ def start_transmissions(_pkts):
         _thread.start_new_thread(generate_msg, ())
         # print("Before encryption:", msg)
         msg = aes(AppSKey, 1).decrypt(msg)
-        led.value(1)
+        # led.value(1)
         on_time = chrono.read_us()
         lora.standby()
         pkg = struct.pack(_LORA_PKG_FORMAT % len(msg), MY_ID, len(msg), msg)
@@ -301,11 +316,13 @@ def start_transmissions(_pkts):
         lora.send(pkg)
         led.value(0)
         lora.sleep()
-        # oled_lines("TS-LoRa", "ED SF7", "ID="+str(MY_ID), "Round "+str(i), "Uplink sent!")
+        oled_list.append("Uplink sent!")
+        oled_lines()
         active_tx += (chrono.read_us() - on_time)
-        t = int(round_length - (chrono.read_us() - start) + clock_correct - (airt + 2*guard)) # kill the last slot
-        if t < 0:(airt + 2*guard)
-            print align clock!")
+        t = int(round_length - (sync_slot + 100000) -
+                (chrono.read_us() - start) + clock_correct - slot)
+        if t < 0:
+            print("Cannot align clock!")
             t = 0
         print("sleep time after data (ms):", t/1000, "/ clock correction (ms):", clock_correct/1000)
         machine.idle()
@@ -316,11 +333,12 @@ def start_transmissions(_pkts):
         acks = ""
         lora.standby()
         print("started sync slot at (ms):", chrono.read_ms())
-        oled_lines("TS-LoRa", "ED SF7", "ID="+str(MY_ID), "Round "+str(i), "Waiting for SACK")
+        oled_list.append("Waiting for SACK")
+        oled_lines()
         sync_start = chrono.read_us()
         led.value(1)
-        while(chrono.read_us() - sync_start < 2*sync_slot):
-            # while(1):
+        # while(chrono.read_us() - sync_start < sync_slot):
+        while(1):
             lora.recv()
             lora.on_recv(sack_handler)
             if (acks != ""):
@@ -334,7 +352,8 @@ def start_transmissions(_pkts):
             acks = zfill(bin(int(acks, 16))[2:], index)
             if (acks[my_slot] == "1"): # if the uplink has been delivered
                 print("OK!")
-                oled_lines("TS-LoRa", "ED SF7", "ID="+str(MY_ID), "Waiting for SACK", "OK!")
+                oled_list.append("OK!")
+                oled_lines()
                 succeeded += 0x0001
                 repeats = 0
             else:
@@ -365,7 +384,8 @@ def start_transmissions(_pkts):
         else:
             active_rx += (chrono.read_us() - sync_start)
             print("SACK missed!")
-            oled_lines("TS-LoRa", "ED SF7", "ID="+str(MY_ID), "Round "+str(i), "SACK missed")
+            oled_list.append("SACK missed")
+            oled_lines()
             retrans += 0x0001
             repeats += 0x0001
             i -= 0x0001
@@ -376,7 +396,8 @@ def start_transmissions(_pkts):
                 dropped += 0x0001
                 retrans -= 0x0001
                 i += 0x0001
-                oled_lines("TS-LoRa", "ED SF7", "ID="+str(MY_ID), "Round "+str(i), "Packet dropped")
+                oled_list.append("Packet dropped")
+                oled_lines()
                 time.sleep_us(int(round_length-sync_slot-int(proc_gw)))
                 sync()
                 clock_correct = 0
@@ -390,6 +411,8 @@ def start_transmissions(_pkts):
         print("transmitted/delivered/retransmitted/dropped:", i, succeeded, retrans, dropped)
         print("radio active time (rx/tx) (s):", active_rx/1e6, "/", active_tx/1e6)
         i += 0x0001 # are 2 bytes enough? reserve more bytes for long experiments
+        # if (chrono.read_us()-start) < round_length:
+            # time.sleep_us(chrono.read_us()-start+10)
 
     # send out stats
     print("I'm sending stats")
@@ -431,6 +454,18 @@ def init_handler(recv_pkg):
             lora.standby()
             print("ready for a new one...")
 
+def oled_lines():
+    global oled_list
+    oled.fill(0)
+    oled.text("TS-LoRa "+"SF"+str(my_sf)+" ID"+str(MY_ID), 0, 0)
+    l = 12
+    if len(oled_list) > 6:
+        oled_list.pop(0)
+    for line in oled_list:
+        oled.text(line, 0, l)
+        l += 8
+    oled.show()
+
 ### MAIN ###
 
 led = Pin(25,Pin.OUT) # heltec V2
@@ -441,17 +476,7 @@ sda = Pin(4, Pin.OUT, Pin.PULL_UP)
 i2c = SoftI2C(scl=scl, sda=sda, freq=450000)
 oled = ssd1306.SSD1306_I2C(128, 64, i2c, addr=0x3c)
 oled.poweron()
-
-def oled_lines(line1, line2, line3, line4, line5):
-    oled.fill(0)
-    oled.text(line1, 0, 0)
-    oled.text(line2, 0, 10)
-    oled.text(line3, 0, 20)
-    oled.text(line4, 0, 30)
-    oled.text(line5, 0, 40)
-    oled.show()
-
-oled_lines("TS-LoRa", "ED SF7", " ", " ", " ")
+oled_list = []
 
 # SPI pins
 SCK  = 5
@@ -516,13 +541,15 @@ JoinEUI = 0xF10FB3DE32960229 # this could be random
 AppKey = AK[int(MY_ID)-11]
 DevNonce = 0x00000001 # 32 bit
 chrono = Chrono()
+oled_lines()
 
 # uncomment the following two lines if you don't want to use the init_exp.py script (additional changes on gw_req are needed)
 chrono.start()
 start_transmissions(100)
 #
 print("Waiting for commands...")
-oled_lines("TS-LoRa", "ED SF7", "Waiting for commands", " ", " ")
+oled_list.append("Waiting for commands")
+oled_lines()
 lora.set_spreading_factor(12)
 lora.set_frequency(freqs[0])
 lora.standby()
