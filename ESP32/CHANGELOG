@@ -1,8 +1,17 @@
+v1.0.2_ESP32 (23/11/2022)
+- added stats transmissions
+- fixed some synchronization issues. Still not perfect
+- fixed clock correction
+- fixed proc_gw time
+- other minor fixes
+- added TODO list
+
 v1.0.1_ESP32 (20/11/2022)
 - fixed some halts in lora receive mode
 - fixed import time error in gw req and data
 - fixed the start() overflow in chrono lib
 - revised gw-req code
+- added lora sleep modes
 - removed unnecessary variables
 - added some led notifications
 - some IPs have been changed due to a new testing environment. Revise accordingly

@@ -99,8 +99,7 @@ def handler(x):
     global JoinNonce
     global stats
     global registered
-    print(x[0], x[2])
-    # print(x)
+    #print(x[0], x[2])
     if (len(x) > 2) and (x[2] == 1):
         led.value(1)
         try:
@@ -111,8 +110,6 @@ def handler(x):
             exp_is_running = 0
             led.value(0)
         else:
-            if (ptype != 1):  # the packet is a join request
-                raise
             if (len(hex(mac)+hex(JoinEUI)+str(DevNonce)+str(req_sf)) != leng):
                 print("wrong packet!")
             print("Received a join request from", dev_id)
@@ -128,6 +125,8 @@ def handler(x):
                 index[req_sf] += 1
                 registered.append([int(dev_id), slot])
             JoinNonce[int(dev_id)] += 1
+            if (dev_id in stats):
+		stats.remove(dev_id)
             try:
                 # send/receive data to/from Raspberry Pi
                 wlan_s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -174,20 +173,13 @@ def handler(x):
                         led.value(0)
     elif (len(x) > 2) and (x[2] == 2):  # the packet is a statistics packet
         try:
-            (i, succeeded, retrans, dropped, rx, tx) = msg.split(":")
-            i = int(i)
-            succeeded = int(succeeded)
-            retrans = int(retrans)
-            dropped = int(dropped)
-            rx = float(rx)
-            tx = float(tx)
+            (dev_id, leng, ptype, i, succeeded, retrans, dropped, rx, tx) = struct.unpack("BBBHHHHff", x)
         except:
-            print("wrong packet format!")
+            print("wrong stat packet format!")
         else:
             if dev_id not in stats:
                 print("Received stats from", dev_id)
-                print('Node %d: %d %d %d %d %f %f' % (
-                    int(dev_id), i, succeeded, retrans, dropped, rx, tx))
+                print('Node %d: %d %d %d %d %f %f' % (dev_id, i, succeeded, retrans, dropped, rx, tx))
                 stats.append(dev_id)
 
 def receive_req():

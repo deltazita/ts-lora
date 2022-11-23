@@ -144,14 +144,14 @@ def handler(recv_pkg):
     if (len(recv_pkg) > 2):
         recv_pkg_len = recv_pkg[1]
         recv_pkg_id = recv_pkg[0]
-        if (int(recv_pkg_id) <= 35) and (int(recv_pkg_len) == int(packet_size)):
+        if (recv_pkg_len == packet_size):
             dev_id, leng, msg = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
             if (len(msg) == packet_size): # format check
                 received += 1
                 print("Received", msg, "from:", dev_id)
-                msg = aes(KEY[int(dev_id)], 1).encrypt(msg)
+                msg = aes(KEY[dev_id], 1).encrypt(msg)
                 print("Decrypted text:", msg)
-                acks.append(str(int(dev_id)))
+                acks.append(str(dev_id))
 
 def receive_data():
     global index
@@ -210,7 +210,7 @@ def receive_data():
         proc_t = chrono.read_us()-proc_t
         print("proc time (ms):", proc_t/1000)
         sync_start = chrono.read_us()
-        time.sleep_us(int(3*guard/2))
+        time.sleep_us(guard)
         data = str(index+1)+str(int(proc_t/1000))+hex(ack_msg)
         pkg = struct.pack("BBBfI", MY_ID, len(data), index+1, proc_t, ack_msg)
         lora.standby()
@@ -219,7 +219,7 @@ def receive_data():
         print("Sent sync: "+hex(ack_msg))
         led.value(0)
         lora.standby()
-        time.sleep_ms(50) # node time after sack
+        time.sleep_ms(100) # node time after sack
         print("sync lasted (ms):", (chrono.read_us()-sync_start)/1000)
         print("round lasted (ms):", (chrono.read_us()-round_start)/1000)
         i += 1
