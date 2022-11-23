@@ -6,13 +6,14 @@ This is a stand-alone implementation of the TS-LoRa protocol as it is presented 
 
 The implementation consists of 4 parts; the node part, the gateway request part, the gateway data part, and the Raspberry Pi part. 
 
-The code has been designed for and tested on Pycom Lopy4 and Fipy devices with SF7-9. 
+The code has been designed for and tested on Pycom Lopy4 and Fipy devices with SF7-9.
+It has been tested on native ESP32 devices with SF7. Select the corresponding folder. 
 
-To run this code you will need at least 3 Pycom devices with LoRa and Wifi support (2 for the gateways + 1 node). 
+To run this code you will need at least 3 devices with LoRa and Wifi support (2 for the gateways + 1 node). 
 
 Modifications may be needed to adjust the scenarios to your own needs (see SETUP file for a recommended setup). All the code except of the Raspberry Pi scripts is strictly licensed under the GNU GPL v3 (see LICENSE file).
 
-The implementation constitutes a proof-of-concept and it can be used by researchers to replicate the experimental setup used in the papers above.
+The implementation constitutes a proof-of-concept and it can be used by researchers to replicate the experimental setup used in the papers above or create their own setup.
 
 Features:
 - Time-slotted LoRa transmissions
@@ -25,9 +26,9 @@ Features:
 - Statistics per node
 - Over 99.9% Packet Delivery Ratio (excluding path-loss losses)
 
-Limitations / Work in progress:
+Limitations:
 - Two or more 1-channel gateways must currently be used. 
-- Python's pack and unpack struct functions are currently used to send data. 
-- Downlink transmissions are not encrypted
+- Downlink transmissions are not encrypted.
+- Not 100% compliant with LoRaWAN OTAA.
 
 For any serious inquires please contact the author at dimzorbas@ieee.org
