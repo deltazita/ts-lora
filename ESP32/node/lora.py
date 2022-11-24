@@ -42,6 +42,8 @@ MODE_SLEEP = 0x00
 MODE_STDBY = 0x01
 MODE_TX = 0x03
 MODE_RX_CONTINUOUS = 0x05
+MODE_RX_ONCE = 0x06
+MODE_CAD = 0x07
 
 IRQ_TX_DONE_MASK = 0x08
 IRQ_PAYLOAD_CRC_ERROR_MASK = 0x20
@@ -59,6 +61,7 @@ class LoRa:
         if self._read(REG_VERSION) != 0x12: # normally this should never happen
             raise Exception('Invalid version or bad SPI connection')
         self.sleep()
+        self._write(REG_OP_MODE, MODE_LORA)
         self.set_frequency(kw.get('frequency', 433.0))
         self.set_bandwidth(kw.get('bandwidth', 125000))
         self.set_spreading_factor(kw.get('spreading_factor', 7))
@@ -68,7 +71,7 @@ class LoRa:
         # set LNA boost
         self._write(REG_LNA, self._read(REG_LNA) | 0x03)
         # set auto AGC
-        self._write(REG_MODEM_CONFIG_3, 0x04)
+        self._write(REG_MODEM_CONFIG_3, 0x00)
         self.set_tx_power(kw.get('tx_power', 14))
         self._implicit = kw.get('implicit', False)
         self.set_implicit(self._implicit)
@@ -127,6 +130,9 @@ class LoRa:
     def sleep(self):
         self._write(REG_OP_MODE, MODE_LORA | MODE_SLEEP)
 
+    def cad(self):
+        self._write(REG_OP_MODE, MODE_LORA | MODE_CAD)
+
     def set_tx_power(self, level, outputPin=PA_OUTPUT_PA_BOOST_PIN):
         if outputPin == PA_OUTPUT_RFO_PIN:
             level = min(max(level, 0), 14)
@@ -150,6 +156,7 @@ class LoRa:
         self._write(REG_DETECTION_THRESHOLD, 0x0c if sf == 6 else 0x0a)
         reg2 = self._read(REG_MODEM_CONFIG_2)
         self._write(REG_MODEM_CONFIG_2, (reg2 & 0x0f) | ((sf << 4) & 0xf0))
+        self._write(REG_MODEM_CONFIG_3, 0x08 if (sf > 10 and self._bandwidth<250000) else 0x00)
 
     def set_bandwidth(self, bw):
         self._bandwidth = bw
@@ -204,6 +211,9 @@ class LoRa:
 
     def recv(self):
         self._write(REG_OP_MODE, MODE_LORA | MODE_RX_CONTINUOUS)
+
+    def recv_once(self):
+        self._write(REG_OP_MODE, MODE_LORA | MODE_RX_ONCE)
 
     def _irq_recv(self, event_source):
         f = self._get_irq_flags()

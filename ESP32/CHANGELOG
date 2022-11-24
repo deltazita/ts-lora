@@ -1,3 +1,9 @@
+v1.0.3_ESP32 (24/11/2022)
+- new oled function
+- fixed synchronization
+- fixed lora receive halts at the node
+- fixed lora library low data rate optimization bug
+
 v1.0.2_ESP32 (23/11/2022)
 - added stats transmissions
 - fixed some synchronization issues. Still not perfect

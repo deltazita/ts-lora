@@ -68,7 +68,7 @@ class LoRa:
         # set LNA boost
         self._write(REG_LNA, self._read(REG_LNA) | 0x03)
         # set auto AGC
-        self._write(REG_MODEM_CONFIG_3, 0x04)
+        self._write(REG_MODEM_CONFIG_3, 0x00)
         self.set_tx_power(kw.get('tx_power', 14))
         self._implicit = kw.get('implicit', False)
         self.set_implicit(self._implicit)
@@ -150,6 +150,7 @@ class LoRa:
         self._write(REG_DETECTION_THRESHOLD, 0x0c if sf == 6 else 0x0a)
         reg2 = self._read(REG_MODEM_CONFIG_2)
         self._write(REG_MODEM_CONFIG_2, (reg2 & 0x0f) | ((sf << 4) & 0xf0))
+        self._write(REG_MODEM_CONFIG_3, 0x08 if (sf > 10 and self._bandwidth<250000) else 0x00)
 
     def set_bandwidth(self, bw):
         self._bandwidth = bw
