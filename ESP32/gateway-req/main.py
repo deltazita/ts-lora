@@ -14,9 +14,8 @@ import time
 import uos
 import _thread
 import uerrno
-from machine import Timer
 import sys
-from machine import SoftI2C, Pin, SPI, reset
+from machine import SoftI2C, Pin, SPI, reset, idle
 from lora import LoRa
 import ssd1306
 from time import sleep
@@ -60,7 +59,7 @@ lora = LoRa( spi, cs=Pin(CS, Pin.OUT), rx=Pin(RX, Pin.IN), )
 
 _LORA_PKG_FORMAT = "!BB%ds"
 _LORA_RCV_PKG_FORMAT = "!BB%ds"
-MY_ID = 1
+MY_ID = 0x01
 # freqs = [868.1, 868.3, 868.5, 867.1, 867.3, 867.5, 867.7, 867.9]
 # freqs = [903.9, 904.1, 904.3, 904.5, 904.7, 904.9, 905.1, 905.3]
 freqs = [433.175, 433.325, 433.475, 433.625, 433.775, 433.925, 434.075, 434.225] # 433.175 - 434.665 according to heltec
@@ -94,6 +93,7 @@ for i in range(11, 36):  # for 25 devices
     JoinNonce[i] = 0x00000001 # 32 bit
 
 def handler(x):
+    global lora
     global exp_is_running
     global index
     global JoinNonce
@@ -166,6 +166,7 @@ def handler(x):
                         pkg = struct.pack("BBBII", MY_ID, len(msg), dev_id, DevAddr, JoinNonce[dev_id])
                         # I should encrypt that using node's AppKey
                         lora.send(pkg)
+                        lora.standby()
                         print("Responded with a join accept!")
                         lora.set_frequency(freqs[0])
                         wlan_s.close()
@@ -181,13 +182,15 @@ def handler(x):
                 print("Received stats from", dev_id)
                 print('Node %d: %d %d %d %d %f %f' % (dev_id, i, succeeded, retrans, dropped, rx, tx))
                 stats.append(dev_id)
+    lora.recv()
 
 def receive_req():
     global registered
     registered = []
+    lora.on_recv(handler)
+    lora.recv()
     while (exp_is_running):
-        lora.recv()
-        lora.on_recv(handler)
+        idle()
     print("Stopped accepting join requests!")
     led.value(0)
 

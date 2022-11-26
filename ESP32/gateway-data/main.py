@@ -14,9 +14,8 @@ import time
 import uos
 import _thread
 import uerrno
-from machine import Timer
 import sys
-from machine import SoftI2C, Pin, SPI
+from machine import SoftI2C, Pin, SPI, idle
 from lora import LoRa
 import ssd1306
 from time import sleep
@@ -140,7 +139,8 @@ def handler(recv_pkg):
     global packet_size
     global received
     global acks
-    print(recv_pkg)
+    global lora
+    # print(recv_pkg)
     if (len(recv_pkg) > 2):
         recv_pkg_len = recv_pkg[1]
         recv_pkg_id = recv_pkg[0]
@@ -148,10 +148,11 @@ def handler(recv_pkg):
             dev_id, leng, msg = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
             if (len(msg) == packet_size): # format check
                 received += 1
-                print("Received", msg, "from:", dev_id)
+                print("Received data from:", dev_id)
                 msg = aes(KEY[dev_id], 1).encrypt(msg)
-                print("Decrypted text:", msg)
+                # print("Decrypted text:", msg)
                 acks.append(str(dev_id))
+    lora.recv()
 
 def receive_data():
     global index
@@ -160,6 +161,7 @@ def receive_data():
     global packet_size
     global received
     global acks
+    global lora
     guard = 1000*guard
     (overall_received, overall_sent) = (0, 0)
     airt = int(airtime_calc(my_sf,1,packet_size+2,125)*1000)
@@ -184,10 +186,10 @@ def receive_data():
             round_length = math.ceil(duty_cycle_limit_slots*(airt + 2*guard))
         rec_start = chrono.read_us()
         led.value(0)
+        lora.on_recv(handler)
+        lora.recv()
         while ((chrono.read_us() - round_start) < round_length-(airt + 2*guard)): # kill the last slot
-            lora.recv()
-            lora.on_recv(handler)
-        lora.sleep()
+            idle()
         print(received, "packet(s) received")
         rec_lasted = chrono.read_us()-rec_start
         if (rec_lasted < round_length):
@@ -213,12 +215,10 @@ def receive_data():
         time.sleep_us(guard)
         data = str(index+1)+str(int(proc_t/1000))+hex(ack_msg)
         pkg = struct.pack("BBBfI", MY_ID, len(data), index+1, proc_t, ack_msg)
-        lora.standby()
         led.value(1)
         lora.send(pkg)
         print("Sent sync: "+hex(ack_msg))
         led.value(0)
-        lora.standby()
         time.sleep_ms(100) # node time after sack
         print("sync lasted (ms):", (chrono.read_us()-sync_start)/1000)
         print("round lasted (ms):", (chrono.read_us()-round_start)/1000)

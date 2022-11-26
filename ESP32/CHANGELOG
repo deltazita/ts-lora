@@ -1,3 +1,9 @@
+v1.0.4_ESP32 (26/11/2022)
+- fixed lora recv handler issue
+- fixed node ack packet format (tested with 3 nodes)
+- other minor fixes
+- updated TODO list
+
 v1.0.3_ESP32 (24/11/2022)
 - new oled function
 - fixed synchronization

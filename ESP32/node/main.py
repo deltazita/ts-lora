@@ -52,9 +52,6 @@ def get_id():
             MY_ID = int(fields[1])
     print("WIFI MAC:", my_mac, "-> My id:", MY_ID)
 
-def zfill(s, width):
-    return '{:0>{w}}'.format(s, w=width)
-
 def random_sleep(max_sleep):
     t = random.getrandbits(32)
     time.sleep(1+t%max_sleep) # wake-up at a random time
@@ -318,7 +315,7 @@ def start_transmissions(_pkts):
         pkg = struct.pack(_LORA_PKG_FORMAT % len(msg), MY_ID, len(msg), msg)
         print("Sending packet of", len(pkg), "bytes at (ms):", (chrono.read_us()-start)/1000)
         lora.send(pkg)
-        led.value(0)
+        # led.value(0)
         lora.sleep()
         oled_list.append("Uplink sent!")
         oled_lines()
@@ -349,17 +346,18 @@ def start_transmissions(_pkts):
                 break
         led.value()
         lora.sleep()
-        # print("ACKS =", acks)
+        print("ACK pkt =", acks)
         if (acks != ""): # if a SACK has been received
             active_rx += (chrono.read_us() - sync_start)
             acks = str(bin(acks))[2:]
-            acks = zfill(bin(int(acks, 16))[2:], index)
+            while (len(acks) < index):
+                acks = "0"+acks
             if (acks[my_slot] == "1"): # if the uplink has been delivered
-                print("OK!")
-                oled_list.append("OK! ("+str(succeeded)+")")
-                oled_lines()
                 succeeded += 0x0001
                 repeats = 0
+                print("OK!")
+                oled_list.append("OK! ("+str(succeeded)+" acked)")
+                oled_lines()
             else:
                 print("I will repeat the last packet")
                 oled_list.append("NOT OK!")

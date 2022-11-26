@@ -1,6 +1,7 @@
 TODO list
 
-- deep sleep between transmissions
+- replace node ids with DevAddrs
+- deep sleep between uplink transmissions
 - make joining mech fully compliant with LoRaWAN OTAA
 - revise encryption
 - add CAD feature
