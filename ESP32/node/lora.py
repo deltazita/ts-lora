@@ -56,13 +56,14 @@ class LoRa:
         self.spi = spi
         self.cs = kw['cs']
         self.rx = kw['rx']
+        self.cad = kw['cad']
         while self._read(REG_VERSION) != 0x12: # for some reason this fails sometimes
             time.sleep_ms(10)
         if self._read(REG_VERSION) != 0x12: # normally this should never happen
             raise Exception('Invalid version or bad SPI connection')
         self.sleep()
         self._write(REG_OP_MODE, MODE_LORA)
-        self.set_frequency(kw.get('frequency', 433.0))
+        self.set_frequency(kw.get('frequency', 868.0))
         self.set_bandwidth(kw.get('bandwidth', 125000))
         self.set_spreading_factor(kw.get('spreading_factor', 7))
         self.set_coding_rate(kw.get('coding_rate', 5))
@@ -77,6 +78,7 @@ class LoRa:
         self.set_implicit(self._implicit)
         self.set_sync_word(kw.get('sync_word', 0x12))
         self._on_recv = kw.get('on_recv', None)
+        self._cad = kw.get('cad', None)
         self._write(REG_FIFO_TX_BASE_ADDR, TX_BASE_ADDR)
         self._write(REG_FIFO_RX_BASE_ADDR, RX_BASE_ADDR)
         self.standby()
@@ -130,7 +132,9 @@ class LoRa:
     def sleep(self):
         self._write(REG_OP_MODE, MODE_LORA | MODE_SLEEP)
 
-    def cad(self):
+    def cad_on(self):
+        reg_val = self._read(REG_DIO_MAPPING_1)
+        self._write(REG_DIO_MAPPING_1, (reg_val & 0xFC) | 0x00)
         self._write(REG_OP_MODE, MODE_LORA | MODE_CAD)
 
     def set_tx_power(self, level, outputPin=PA_OUTPUT_PA_BOOST_PIN):
@@ -199,6 +203,17 @@ class LoRa:
             else:
                 config = modem_config_1 & 0xfe
             self._write(REG_MODEM_CONFIG_1, config)
+
+    def cad_recv(self, callback):
+        self._cad = callback
+        if self.cad and callback:
+            return self.cad.irq(handler=self._irq_cad, trigger=Pin.IRQ_RISING)
+
+    def _irq_cad(self, event_source):
+        if ((self._read(REG_IRQ_FLAGS) & 0x01) == 0x01):
+            self._write(REG_IRQ_FLAGS, 0x01 | 0x04)
+            return True
+        return False
 
     def on_recv(self, callback):
         self._on_recv = callback

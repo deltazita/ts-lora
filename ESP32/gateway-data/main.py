@@ -24,7 +24,8 @@ from chrono import Chrono
 from cryptolib import aes
 import gc
 
-led = Pin(25,Pin.OUT)
+# led = Pin(25,Pin.OUT) # Heltec V2
+led = Pin(2,Pin.OUT) # TTGO
 rst = Pin(16, Pin.OUT)
 rst.value(1)
 scl = Pin(15, Pin.OUT, Pin.PULL_UP)
@@ -64,9 +65,9 @@ lora = LoRa( spi, cs=Pin(CS, Pin.OUT), rx=Pin(RX, Pin.IN), )
 _LORA_PKG_FORMAT = "!BB%ds"
 _LORA_RCV_PKG_FORMAT = "!BB%ds"
 MY_ID = 0x02
-# freqs = [868.1, 868.3, 868.5, 867.1, 867.3, 867.5, 867.7, 867.9]
+freqs = [868.1, 868.3, 868.5, 867.1, 867.3, 867.5, 867.7, 867.9]
 # freqs = [903.9, 904.1, 904.3, 904.5, 904.7, 904.9, 905.1, 905.3]
-freqs = [433.175, 433.325, 433.475, 433.625, 433.775, 433.925, 434.075, 434.225] # 433.175 - 434.665 according to heltec
+# freqs = [433.175, 433.325, 433.475, 433.625, 433.775, 433.925, 434.075, 434.225] # 433.175 - 434.665 according to heltec
 my_sf = int(MY_ID) + 5
 (guard, my_bw_index, packet_size) = (15, 0, 16) # the packet size must align with the nodes packet size
 index = 0
@@ -111,7 +112,7 @@ def update_index():
     global index
     global slot
     global KEY
-    host = '192.168.1.'+str(my_sf)
+    host = '192.168.0.'+str(my_sf)
     port = 8000
     wlan_s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     print("WiFi socket created.")
@@ -208,16 +209,26 @@ def receive_data():
                     ack_msg = ack_msg+"0"
         if (ack_msg == ""):
             ack_msg += "0"
-        ack_msg = int(ack_msg, 2)
+        # ack_msg = int(ack_msg, 2)
+        acks = ""
+        while(len(ack_msg) > 4):
+            ack_ = ack_msg[:4]
+            ack_msg = ack_msg[4:]
+            acks += hex(int(ack_, 2))[2:]
+        if len(ack_msg) > 0:
+            acks += hex(int(ack_msg, 2))[2:]
+        else:
+            acks = "0"
         proc_t = chrono.read_us()-proc_t
-        print("proc time (ms):", proc_t/1000)
+        proc_t = int(proc_t/1000 + 0.5)
+        print("proc time (ms):", proc_t)
         sync_start = chrono.read_us()
         time.sleep_us(guard)
-        data = str(index+1)+str(int(proc_t/1000))+hex(ack_msg)
-        pkg = struct.pack("BBBfI", MY_ID, len(data), index+1, proc_t, ack_msg)
+        # data = str(index+1)+str(proc_t)+hex(ack_msg)
+        pkg = struct.pack("BBBB%ds" % len(acks), MY_ID, len(acks), index+1, proc_t, acks)
         led.value(1)
         lora.send(pkg)
-        print("Sent sync: "+hex(ack_msg))
+        print("Sent sync: "+acks)
         led.value(0)
         time.sleep_ms(100) # node time after sack
         print("sync lasted (ms):", (chrono.read_us()-sync_start)/1000)

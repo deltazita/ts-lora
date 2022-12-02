@@ -1,3 +1,7 @@
+v1.0.5_ESP32 (02/12/2022)
+- fixes when running with several nodes
+- tested with 3 TTGOs @ 868MHz
+
 v1.0.4_ESP32 (26/11/2022)
 - fixed lora recv handler issue
 - fixed node ack packet format (tested with 3 nodes)

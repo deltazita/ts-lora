@@ -59,7 +59,7 @@ class LoRa:
         if self._read(REG_VERSION) != 0x12: # normally this should never happen
             raise Exception('Invalid version or bad SPI connection')
         self.sleep()
-        self.set_frequency(kw.get('frequency', 433.0))
+        self.set_frequency(kw.get('frequency', 868.0))
         self.set_bandwidth(kw.get('bandwidth', 125000))
         self.set_spreading_factor(kw.get('spreading_factor', 7))
         self.set_coding_rate(kw.get('coding_rate', 5))

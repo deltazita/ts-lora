@@ -20,7 +20,8 @@ from lora import LoRa
 import ssd1306
 from time import sleep
 
-led = Pin(25,Pin.OUT)
+# led = Pin(25,Pin.OUT) # Heltec V2
+led = Pin(2,Pin.OUT) # TTGO
 rst = Pin(16, Pin.OUT)
 rst.value(1)
 scl = Pin(15, Pin.OUT, Pin.PULL_UP)
@@ -60,9 +61,9 @@ lora = LoRa( spi, cs=Pin(CS, Pin.OUT), rx=Pin(RX, Pin.IN), )
 _LORA_PKG_FORMAT = "!BB%ds"
 _LORA_RCV_PKG_FORMAT = "!BB%ds"
 MY_ID = 0x01
-# freqs = [868.1, 868.3, 868.5, 867.1, 867.3, 867.5, 867.7, 867.9]
+freqs = [868.1, 868.3, 868.5, 867.1, 867.3, 867.5, 867.7, 867.9]
 # freqs = [903.9, 904.1, 904.3, 904.5, 904.7, 904.9, 905.1, 905.3]
-freqs = [433.175, 433.325, 433.475, 433.625, 433.775, 433.925, 434.075, 434.225] # 433.175 - 434.665 according to heltec
+# freqs = [433.175, 433.325, 433.475, 433.625, 433.775, 433.925, 434.075, 434.225] # 433.175 - 434.665 according to heltec
 index = {}
 JoinNonce = {}
 stats = []
@@ -130,7 +131,7 @@ def handler(x):
             try:
                 # send/receive data to/from Raspberry Pi
                 wlan_s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                wlan_s.connect(('192.168.1.202', 8000))
+                wlan_s.connect(('192.168.0.254', 8000))
             except:
                 print("Connection to RPi failed!")
                 wlan_s.close()
@@ -152,7 +153,7 @@ def handler(x):
                         # send registered node info to the data gateway
                         pkt = struct.pack("BBB%ds" % len(AppSkey), dev_id, len(AppSkey), int(slot), AppSkey)
                         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                        s.connect(('192.168.1.'+str(req_sf), 8000))
+                        s.connect(('192.168.0.'+str(req_sf), 8000))
                         s.send(pkt)
                     except:
                         print("Data-gw socket error")

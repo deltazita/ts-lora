@@ -3,7 +3,8 @@
 #
 # Distributed under GNU GPLv3
 #
-# Tested with Heltec LoRa v2 433MHz SX1278 and micropython v1.19.1 for ESP32 LILYGO
+# Tested with Heltec LoRa v2 433MHz SX1278 and LILYGO TTGO 868/915MHz SX1276
+# micropython v1.19.1 for ESP32 LILYGO
 
 import os
 import sys
@@ -22,6 +23,7 @@ import ssd1306
 import network
 import random
 from cryptolib import aes
+import gc
 
 ### FUNCTIONS ###
 
@@ -37,6 +39,7 @@ from cryptolib import aes
 #         pass
 #     pycom.rgbled(0x000000)
 
+# ids are used for the experiments convenience but are not required for the protocol operation
 def get_id():
     global MY_ID
     global my_mac
@@ -55,6 +58,9 @@ def get_id():
 def random_sleep(max_sleep):
     t = random.getrandbits(32)
     time.sleep(1+t%max_sleep) # wake-up at a random time
+
+def zfill(s, width):
+    return '{:0>{w}}'.format(s, w=width)
 
 # this is borrowed from LoRaSim (https://www.lancaster.ac.uk/scc/sites/lora/lorasim.html)
 def airtime_calc(sf,cr,pl,bw):
@@ -88,6 +94,7 @@ def req_handler(recv_pkg):
             if (int(dev_id) == int(MY_ID)):
                 oled_list.append("Rcved join accept")
                 oled_lines()
+    lora.recv()
 
 def join_request():
     global lora
@@ -106,6 +113,7 @@ def join_request():
     print(MY_ID, len(rmsg), "1", hex(DevEUI), hex(JoinEUI), DevNonce, my_sf)
     pkg = struct.pack("BBBQQIB", MY_ID, len(rmsg), 0x01, DevEUI, JoinEUI, DevNonce, my_sf)
     while (True):
+        lora.standby()
         led.value(1)
         start = chrono.read_ms()
         lora.send(pkg)
@@ -118,8 +126,8 @@ def join_request():
         time.sleep_ms(100)
         lora.set_frequency(freqs[1])
         start = chrono.read_ms()
-        lora.recv()
         lora.on_recv(req_handler)
+        lora.recv()
         while(chrono.read_ms() - start < 5000):
             if(DevAddr != ""):
                 break
@@ -159,13 +167,15 @@ def sync_handler(recv_pkg):
     global chrono
     global proc_gw
     global sack_rcv
-    print(recv_pkg)
+    global sack_bytes
+    # print(recv_pkg)
     if (len(recv_pkg) > 2):
-        recv_pkg_len = recv_pkg[1]
+        ack_len = recv_pkg[1]
         recv_pkg_id = recv_pkg[0]
         if (int(recv_pkg_id) == (my_sf-5)):
             sack_rcv = chrono.read_us()
-            (id, leng, index, proc_gw, acks) = struct.unpack("BBBfI", recv_pkg)
+            (id, leng, index, proc_gw, acks) = struct.unpack("BBBB%ds" % ack_len, recv_pkg)
+            sack_bytes = 4 + ack_len
             print("ACK!")
             oled_list.append("Synchronized!")
             oled_lines()
@@ -186,8 +196,8 @@ def sync():
     oled_list.append("Waiting for SACK")
     oled_lines()
     print("Waiting for SACK...")
-    lora.recv()
     lora.on_recv(sync_handler)
+    lora.recv()
     while (index == 0):
         machine.idle()
         if (index > 0):
@@ -217,7 +227,7 @@ def sack_handler(recv_pkg):
     global corrections
     # print(recv_pkg[0], recv_pkg[2])
     if (len(recv_pkg) > 2):
-        recv_pkg_len = recv_pkg[1]
+        ack_len = recv_pkg[1]
         recv_pkg_id = recv_pkg[0]
         if (int(recv_pkg_id) == (my_sf-5)):
             sack_rcv = chrono.read_us()
@@ -225,20 +235,20 @@ def sack_handler(recv_pkg):
             print("SACK received!", rssi)
             oled_list.append("SACK rcved ("+str(rssi)+")")
             oled_lines()
-            wt = sack_rcv-sync_start-airtime_calc(my_sf,1,11,my_bw_plain)*1000
+            wt = sack_rcv-sync_start-airtime_calc(my_sf,1,sack_bytes,my_bw_plain)*1000
             print("Waiting time before receiving SACK (ms):", wt/1000)
             if (wt != guard) and (fpas == 0): # first packet after sync may delay a bit
                 clock_correct = wt - guard # leave some confidence gap
-                if (abs(clock_correct) > 250000): # something is wrong if this happens
+                if (abs(clock_correct) > 150000): # something is wrong if this happens
                     clock_correct = 0
                 corrections.append(clock_correct)
                 if (len(corrections) > 10):
                     corrections.pop(0)
                 clock_correct = sum(corrections) / len(corrections)
-            (id, leng, index, proc_gw, acks) = struct.unpack("BBBfI", recv_pkg)
-            proc_gw /= 1e6
+            (id, leng, index, proc_gw, acks) = struct.unpack("BBBB%ds" % ack_len, recv_pkg)
+            acks = acks.decode("utf-8")
 
-def start_transmissions(_pkts):
+def start_transmissions():
     global lora
     global index
     global active_tx
@@ -262,7 +272,7 @@ def start_transmissions(_pkts):
     airt = int(airtime_calc(my_sf,1,packet_size+2,my_bw_plain)*1000)
     slot = airt + 2*guard
     duty_cycle_limit_slots = math.ceil(100*airt/slot)
-    proc_and_switch = 12000 # time for preparing the packet and switch radio mode (us)
+    proc_and_switch = 7000 # time for preparing the packet and switch radio mode (us)
     chrono.reset()
     if (my_slot == -1):
         join_start = chrono.read_us()
@@ -284,17 +294,15 @@ def start_transmissions(_pkts):
     print("Slot size (us):", slot)
     print("Duty cycle slots:", duty_cycle_limit_slots)
     print("SACK slot length (ms):", sync_slot/1000)
-    print("Gw processing time (ms):", proc_gw/1000)
+    print("Gw processing time (ms):", proc_gw)
     print("Time after SACK rec (ms):", (chrono.read_us()-sack_rcv)/1000)
     i = 0x0001
     (succeeded, retrans, dropped, active_rx, active_tx) = (0, 0, 0, 0.0, 0.0)
     print("S T A R T")
-    while(i <= _pkts): # stop after pkts # of packets
+    while(1):
         print(i, "----------------------------------------------------")
         chrono.reset()
         start = chrono.read_us()
-        oled_list.append("Round "+str(i))
-        oled_lines()
         print("starting a new round at (ms):", start/1000)
         # calculate the time until the sack packet
         if (int(index) > duty_cycle_limit_slots):
@@ -304,8 +312,6 @@ def start_transmissions(_pkts):
         # round_length += proc_gw # gw proc time (us)
         print("Round length (ms):", round_length/1000)
         t = int(my_slot*(airt + 2*guard) + guard - proc_and_switch) # sleep time before transmission
-        # print("sleep time (ms):", t/1000)
-        led.value(0)
         time.sleep_us(t)
         _thread.start_new_thread(generate_msg, ())
         # print("Before encryption:", msg)
@@ -321,7 +327,9 @@ def start_transmissions(_pkts):
         oled_lines()
         active_tx += (chrono.read_us() - on_time)
         t = int(round_length - (sync_slot + 100000) -
-                (chrono.read_us() - start) + clock_correct - slot)
+                (chrono.read_us() - start) + clock_correct - guard)
+        if fpas == 0:
+            t -= slot
         if t < 0:
             print("Cannot align clock!")
             t = 0
@@ -337,8 +345,8 @@ def start_transmissions(_pkts):
         oled_lines()
         sync_start = chrono.read_us()
         led.value(1)
-        lora.recv()
         lora.on_recv(sack_handler)
+        lora.recv()
         while(chrono.read_us() - sync_start < 2*sync_slot):
             # while(1):
             machine.idle()
@@ -346,21 +354,28 @@ def start_transmissions(_pkts):
                 break
         led.value()
         lora.sleep()
+        active_rx += (chrono.read_us() - sync_start)
         print("ACK pkt =", acks)
         if (acks != ""): # if a SACK has been received
-            active_rx += (chrono.read_us() - sync_start)
-            acks = str(bin(acks))[2:]
-            while (len(acks) < index):
-                acks = "0"+acks
-            if (acks[my_slot] == "1"): # if the uplink has been delivered
+            bin_ack = ""
+            while(len(acks) > 0):
+                # ack_ = str(bin(int(acks[:1], 16)))[2:]
+                try:
+                    bin_ack += zfill(bin(int(acks[:1], 16))[2:], index if index<4 else 4)
+                except:
+                    print("Bad ack format!")
+                else:
+                    acks = acks[1:]
+            print(bin_ack)
+            if (bin_ack[my_slot] == "1"): # if the uplink has been delivered
                 succeeded += 0x0001
                 repeats = 0
                 print("OK!")
-                oled_list.append("OK! ("+str(succeeded)+" acked)")
+                oled_list.append("OK ("+str(succeeded)+"/"+str(i)+")")
                 oled_lines()
             else:
                 print("I will repeat the last packet")
-                oled_list.append("NOT OK!")
+                oled_list.append("NOT OK")
                 oled_lines()
                 retrans += 0x0001
                 repeats += 0x0001
@@ -385,8 +400,10 @@ def start_transmissions(_pkts):
                     if (len(clocks) == 10):
                         clocks = [sync_slot]
             print("new sync slot length (ms):", sync_slot/1000)
+            if (chrono.read_us()-sack_rcv) < 99000:
+                time.sleep_us(int(100000-(chrono.read_us()-sack_rcv)))
+            print("time after SACK (ms):", (chrono.read_us()-sack_rcv)/1000)
         else:
-            active_rx += (chrono.read_us() - sync_start)
             print("SACK missed!")
             oled_list.append("SACK missed")
             oled_lines()
@@ -402,14 +419,10 @@ def start_transmissions(_pkts):
                 i += 0x0001
                 oled_list.append("Packet dropped")
                 oled_lines()
-                time.sleep_us(int(round_length-sync_slot-int(proc_gw)))
+                time.sleep_us(int(round_length-sync_slot-int(proc_gw*1000)))
                 sync()
                 clock_correct = 0
                 fpas = 1
-        if (acks != ""):
-            if (chrono.read_us()-sack_rcv) < 99000:
-                time.sleep_us(int(100000-(chrono.read_us()-sack_rcv)))
-            print("time after SACK (ms):", (chrono.read_us()-sack_rcv)/1000)
         print("sync slot lasted (ms):", (chrono.read_us()-sync_start)/1000)
         print("round lasted (ms):", (chrono.read_us()-start)/1000)
         print("transmitted/delivered/retransmitted/dropped:", i, succeeded, retrans, dropped)
@@ -466,10 +479,12 @@ def oled_lines():
         oled.text(line, 0, l)
         l += 8
     oled.show()
+    gc.collect()
 
 ### MAIN ###
 
-led = Pin(25,Pin.OUT) # heltec V2
+#led = Pin(25,Pin.OUT) # heltec V2
+led = Pin(2,Pin.OUT) # TTGO
 rst = Pin(16, Pin.OUT)
 rst.value(1)
 scl = Pin(15, Pin.OUT, Pin.PULL_UP)
@@ -485,6 +500,7 @@ MOSI = 27
 MISO = 19
 CS   = 18
 RX   = 26
+DIO2 = 34
 
 spi = SPI(
     1,
@@ -494,7 +510,7 @@ spi = SPI(
     miso=Pin(MISO, Pin.IN, Pin.PULL_UP),
 )
 
-lora = LoRa( spi, cs=Pin(CS, Pin.OUT), rx=Pin(RX, Pin.IN), )
+lora = LoRa( spi, cs=Pin(CS, Pin.OUT), rx=Pin(RX, Pin.IN), cad=Pin(DIO2, Pin.IN))
 
 spi.init()
 
@@ -511,7 +527,7 @@ S = 1000
 active_rx = 0.0
 active_tx = 0.0
 proc_gw = 4000 # gw default (minimum) processing time (us)
-(sack_rcv, sack_bytes) = (0, 11) # will be filled later
+(sack_rcv, sack_bytes) = (0, 0) # will be filled later
 msg = random.getrandbits(32) # just a random 4-byte int
 msg = hex(msg)[2:]
 while (len(msg) < packet_size):
@@ -520,9 +536,9 @@ while (len(msg) > packet_size): # just correct the size
     msg = msg[:-1]
 print("Packet size =", len(msg), "bytes")
 (retrans, succeeded, dropped) = (0, 0, 0)
-# freqs = [868.1, 868.3, 868.5, 867.1, 867.3, 867.5, 867.7, 867.9]
+freqs = [868.1, 868.3, 868.5, 867.1, 867.3, 867.5, 867.7, 867.9]
 # freqs = [903.9, 904.1, 904.3, 904.5, 904.7, 904.9, 905.1, 905.3]
-freqs = [433.175, 433.325, 433.475, 433.625, 433.775, 433.925, 434.075, 434.225] # 433.175 - 434.665 according to heltec
+# freqs = [433.175, 433.325, 433.475, 433.625, 433.775, 433.925, 434.075, 434.225] # 433.175 - 434.665 according to heltec
 
 # 25 default AppKeys for testing
 AK = ["3878214125442A472D4B615064536756","7234753778217A25432A462D4A614E64","576D5A7134743777217A24432646294A","655368566D5971337436773979244226",
@@ -546,14 +562,14 @@ oled_lines()
 
 # uncomment the following two lines if you don't want to use the init_exp.py script (additional changes on gw_req are needed)
 chrono.start()
-start_transmissions(100)
+start_transmissions()
 #
 print("Waiting for commands...")
 oled_list.append("Waiting for commands")
 oled_lines()
 lora.set_spreading_factor(12)
 lora.set_frequency(freqs[0])
-lora.recv()
 lora.on_recv(init_handler)
+lora.recv()
 while(True):
     machine.idle()
