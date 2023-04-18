@@ -16,7 +16,6 @@ import ubinascii
 import math
 import uhashlib
 import _thread
-# from OTA import WiFiOTA
 from chrono import Chrono
 from machine import SoftI2C, Pin, SPI
 import ssd1306
@@ -26,18 +25,6 @@ from cryptolib import aes
 import gc
 
 ### FUNCTIONS ###
-
-# def OTA_update(_ip):
-#     ota = WiFiOTA("OTA_SSID", "", _ip, 8000)
-#     print("Performing OTA")
-#     pycom.rgbled(0xDB7093)
-#     try:
-#         ota.connect()
-#         ota.update()
-#     except:
-#         print("Cannot connect to server!")
-#         pass
-#     pycom.rgbled(0x000000)
 
 # ids are used for the experiments convenience but are not required for the protocol operation
 def get_id():
@@ -88,12 +75,15 @@ def req_handler(recv_pkg):
         recv_pkg_len = recv_pkg[1]
         recv_pkg_id = recv_pkg[0]
         if (int(recv_pkg_id) == 1):
-            # TO DO: check if the packet arrived correctly
-            (id, leng, dev_id, DevAddr, JoinNonce) = struct.unpack("BBBII", recv_pkg)
-            print('Received response from', id, dev_id, hex(DevAddr), JoinNonce)
-            if (int(dev_id) == int(MY_ID)):
+            (id, dev_id, DevAddr, JoinNonce, rcrc) = struct.unpack("BBIII", recv_pkg)
+            # print('Received response from', id, dev_id, hex(DevAddr), JoinNonce, rcrc)
+            msg = b''.join([int(dev_id).to_bytes(1, 'big'), int(DevAddr).to_bytes(4, 'big'), JoinNonce.to_bytes(4, 'big')])
+            if (int(id) == 1 and int(dev_id) == int(MY_ID) and ubinascii.crc32(msg) == rcrc):
+                print("...join accept packet OK")
                 oled_list.append("Rcved join accept")
                 oled_lines()
+            else:
+                print("...join accept packet FAILED")
     lora.recv()
 
 def join_request():
@@ -108,11 +98,12 @@ def join_request():
     global AppSKey
     global oled_list
     lora.set_spreading_factor(12)
-    lora.set_frequency(freqs[0])
-    rmsg = hex(DevEUI)+hex(JoinEUI)+str(DevNonce)+str(my_sf)
-    print(MY_ID, len(rmsg), "1", hex(DevEUI), hex(JoinEUI), DevNonce, my_sf)
-    pkg = struct.pack("BBBQQIB", MY_ID, len(rmsg), 0x01, DevEUI, JoinEUI, DevNonce, my_sf)
+    lora.set_frequency(freqs[-1])
     while (True):
+        rmsg = b''.join([b'1', DevEUI.to_bytes(8, 'big'), JoinEUI.to_bytes(8, 'big'), DevNonce.to_bytes(4, 'big'), my_sf.to_bytes(1, 'big')])
+        crc = ubinascii.crc32(rmsg)
+        print(MY_ID, "1", hex(DevEUI), hex(JoinEUI), DevNonce, my_sf, crc)
+        pkg = struct.pack("BBQQIBI", MY_ID, 0x01, DevEUI, JoinEUI, DevNonce, my_sf, crc)
         lora.standby()
         led.value(1)
         start = chrono.read_ms()
@@ -124,7 +115,7 @@ def join_request():
         oled_list.append("Join req. sent")
         oled_lines()
         time.sleep_ms(100)
-        lora.set_frequency(freqs[1])
+        lora.set_frequency(freqs[-1])
         start = chrono.read_ms()
         lora.on_recv(req_handler)
         lora.recv()
@@ -146,7 +137,7 @@ def join_request():
         text = "".join([text,"0"])
     cipher_en = aes(AppKey, 1)
     AppSKey = cipher_en.encrypt(text)
-    print("Length of the text and AppSKey:", len(text), len(AppSKey))
+    # print("Length of the text and AppSKey:", len(text), len(AppSKey))
     # slot generation
     text = "".join([hex(DevAddr)[2:], hex(DevEUI)[2:]])
     thash = uhashlib.sha256()
@@ -174,11 +165,19 @@ def sync_handler(recv_pkg):
         recv_pkg_id = recv_pkg[0]
         if (int(recv_pkg_id) == (my_sf-5)):
             sack_rcv = chrono.read_us()
-            (id, leng, index, proc_gw, acks) = struct.unpack("BBBB%ds" % ack_len, recv_pkg)
-            sack_bytes = 4 + ack_len
-            print("ACK!")
-            oled_list.append("Synchronized!")
-            oled_lines()
+            try:
+                (id, leng, index, proc_gw, acks, rcrc) = struct.unpack("BBBB%dsI" % ack_len, recv_pkg)
+            except:
+                print("Couldn't unpack")
+            else:
+                crc = b''.join([int(index).to_bytes(1, 'big'), int(proc_gw).to_bytes(1, 'big'), acks])
+                if (ubinascii.crc32(crc) == rcrc):
+                    sack_bytes = 4 + ack_len + 4
+                    print("ACK!")
+                    oled_list.append("Synchronized!")
+                    oled_lines()
+                else:
+                    print("Sync CRC failed")
 
 def sync():
     global lora
@@ -189,7 +188,7 @@ def sync():
     global sack_rcv
     global oled_list
     lora.set_spreading_factor(my_sf)
-    lora.set_frequency(freqs[my_sf-5])
+    lora.set_frequency(freqs[my_sf-7])
     sync_start = chrono.read_us()
     sack_rcv = 0
     index = 0
@@ -223,6 +222,7 @@ def sack_handler(recv_pkg):
     global sync_start
     global fpas
     global acks
+    global sack
     global oled_list
     global corrections
     # print(recv_pkg[0], recv_pkg[2])
@@ -245,8 +245,16 @@ def sack_handler(recv_pkg):
                 if (len(corrections) > 10):
                     corrections.pop(0)
                 clock_correct = sum(corrections) / len(corrections)
-            (id, leng, index, proc_gw, acks) = struct.unpack("BBBB%ds" % ack_len, recv_pkg)
-            acks = acks.decode("utf-8")
+            try:
+                (id, leng, index, proc_gw, acks, rcrc) = struct.unpack("BBBB%dsI" % ack_len, recv_pkg)
+                crc = b''.join([int(index).to_bytes(1, 'big'), int(proc_gw).to_bytes(1, 'big'), acks])
+                if (ubinascii.crc32(crc) == rcrc):
+                    acks = acks.decode("utf-8")
+                    sack = 1
+                else:
+                    print("SACK CRC failed")
+            except:
+                print("Could not unpack!")
 
 def start_transmissions():
     global lora
@@ -266,10 +274,11 @@ def start_transmissions():
     global sync_start
     global fpas
     global acks
+    global sack
     global clock_correct
     global oled_list
     global corrections
-    airt = int(airtime_calc(my_sf,1,packet_size+2,my_bw_plain)*1000)
+    airt = int(airtime_calc(my_sf,1,packet_size+6,my_bw_plain)*1000)
     slot = airt + 2*guard
     duty_cycle_limit_slots = math.ceil(100*airt/slot)
     proc_and_switch = 7000 # time for preparing the packet and switch radio mode (us)
@@ -314,12 +323,12 @@ def start_transmissions():
         t = int(my_slot*(airt + 2*guard) + guard - proc_and_switch) # sleep time before transmission
         time.sleep_us(t)
         _thread.start_new_thread(generate_msg, ())
-        # print("Before encryption:", msg)
         msg = aes(AppSKey, 1).decrypt(msg)
+        crc = ubinascii.crc32(msg)
         # led.value(1)
         on_time = chrono.read_us()
-        pkg = struct.pack(_LORA_PKG_FORMAT % len(msg), MY_ID, len(msg), msg)
-        print("Sending packet of", len(pkg), "bytes at (ms):", (chrono.read_us()-start)/1000)
+        pkg = struct.pack('BB%dsI' % len(msg), MY_ID, len(msg), msg, crc)
+        print("Sending a packet of", len(b''.join([int(MY_ID).to_bytes(1, 'big'), int(len(msg)).to_bytes(1, 'big'), msg, crc.to_bytes(4, 'big')])), "bytes at (ms):", (chrono.read_us()-start)/1000)
         lora.send(pkg)
         # led.value(0)
         lora.sleep()
@@ -340,6 +349,7 @@ def start_transmissions():
         sack_rcv = 0
         clock_correct = 0
         acks = ""
+        sack = 0
         print("started sync slot at (ms):", chrono.read_ms())
         oled_list.append("Waiting for SACK")
         oled_lines()
@@ -348,15 +358,14 @@ def start_transmissions():
         lora.on_recv(sack_handler)
         lora.recv()
         while(chrono.read_us() - sync_start < 2*sync_slot):
-            # while(1):
             machine.idle()
-            if (acks != ""):
+            if (sack == 1):
                 break
-        led.value()
+        led.value(0)
         lora.sleep()
         active_rx += (chrono.read_us() - sync_start)
         print("ACK pkt =", acks)
-        if (acks != ""): # if a SACK has been received
+        if (sack == 1): # if a SACK has been received
             bin_ack = ""
             while(len(acks) > 0):
                 # ack_ = str(bin(int(acks[:1], 16)))[2:]
@@ -366,7 +375,7 @@ def start_transmissions():
                     print("Bad ack format!")
                 else:
                     acks = acks[1:]
-            print(bin_ack)
+            # print(bin_ack)
             if (bin_ack[my_slot] == "1"): # if the uplink has been delivered
                 succeeded += 0x0001
                 repeats = 0
@@ -436,7 +445,7 @@ def start_transmissions():
     pkg = struct.pack("BBBHHHHff", MY_ID, leng, 0x02, int(i-1), int(succeeded), int(retrans),
                         int(dropped), active_rx/1e6, active_tx/1e6) # are 2 bytes enough?
     lora.set_spreading_factor(12)
-    lora.set_frequency(freqs[0])
+    lora.set_frequency(freqs[-1])
     for x in range(3): # send it out 3 times
         led.value(1)
         lora.send(pkg)
@@ -450,7 +459,7 @@ def init_handler(recv_pkg):
         recv_pkg_id = recv_pkg[0]
         recv_pkg_len = recv_pkg[1]
         if (int(recv_pkg_id) == 1):
-            dev_id, leng, ippkts = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
+            dev_id, leng, ippkts = struct.unpack('BB%ds' % recv_pkg_len, recv_pkg)
             ippkts = ippkts.decode('utf-8')
             pkts = int(ippkts)
             print("Starting experiment with", pkts, "packets")
@@ -465,7 +474,7 @@ def init_handler(recv_pkg):
             start_transmissions(pkts)
             print("...experiment done!")
             lora.set_spreading_factor(12)
-            lora.set_frequency(freqs[0])
+            lora.set_frequency(freqs[-1])
             print("ready for a new one...")
 
 def oled_lines():
@@ -519,8 +528,6 @@ my_mac = " "
 DevAddr = ""
 get_id()
 
-_LORA_PKG_FORMAT = "!BB%ds"
-_LORA_RCV_PKG_FORMAT = "!BB%ds"
 (my_sf, my_bw_plain, guard, my_slot, packet_size) = (0x07, 125, 15000, -1, 16) # default values
 index = 0
 S = 1000
@@ -536,8 +543,7 @@ while (len(msg) > packet_size): # just correct the size
     msg = msg[:-1]
 print("Packet size =", len(msg), "bytes")
 (retrans, succeeded, dropped) = (0, 0, 0)
-freqs = [868.1, 868.3, 868.5, 867.1, 867.3, 867.5, 867.7, 867.9]
-# freqs = [903.9, 904.1, 904.3, 904.5, 904.7, 904.9, 905.1, 905.3]
+freqs = [868.1, 868.3, 868.5, 867.1, 867.3, 867.5, 867.7, 867.9, 869.525]
 # freqs = [433.175, 433.325, 433.475, 433.625, 433.775, 433.925, 434.075, 434.225] # 433.175 - 434.665 according to heltec
 
 # 25 default AppKeys for testing
@@ -568,7 +574,7 @@ print("Waiting for commands...")
 oled_list.append("Waiting for commands")
 oled_lines()
 lora.set_spreading_factor(12)
-lora.set_frequency(freqs[0])
+lora.set_frequency(freqs[-1])
 lora.on_recv(init_handler)
 lora.recv()
 while(True):

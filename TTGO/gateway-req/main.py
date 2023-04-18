@@ -58,11 +58,8 @@ spi.init()
 
 lora = LoRa( spi, cs=Pin(CS, Pin.OUT), rx=Pin(RX, Pin.IN), )
 
-_LORA_PKG_FORMAT = "!BB%ds"
-_LORA_RCV_PKG_FORMAT = "!BB%ds"
-MY_ID = 0x01
-freqs = [868.1, 868.3, 868.5, 867.1, 867.3, 867.5, 867.7, 867.9]
-# freqs = [903.9, 904.1, 904.3, 904.5, 904.7, 904.9, 905.1, 905.3]
+MY_ID = 0x01 # do not change this
+freqs = [868.1, 868.3, 868.5, 867.1, 867.3, 867.5, 867.7, 867.9, 869.525]
 # freqs = [433.175, 433.325, 433.475, 433.625, 433.775, 433.925, 434.075, 434.225] # 433.175 - 434.665 according to heltec
 index = {}
 JoinNonce = {}
@@ -81,16 +78,16 @@ if not wlan.isconnected():
     wlan.connect('rasp', 'lalalala')
     while not wlan.isconnected():
         pass
-# print('network config:', wlan.ifconfig())
+print(wlan.ifconfig())
 oled_lines("TS-LoRa", "Requests GW", wlan.ifconfig()[0], " ")
 
 lora.set_spreading_factor(12)
-lora.set_frequency(freqs[0])
+lora.set_frequency(freqs[-1])
 
 # wait for requests
 for i in range(7, 13):
     index[i] = 0
-for i in range(11, 36):  # for 25 devices
+for i in range(11, 261): # for 250 devices (1KB - too much memory?)
     JoinNonce[i] = 0x00000001 # 32 bit
 
 def handler(x):
@@ -101,78 +98,78 @@ def handler(x):
     global stats
     global registered
     #print(x[0], x[2])
-    if (len(x) > 2) and (x[2] == 1):
+    if (len(x) > 2) and (x[1] == 1):
         led.value(1)
         try:
-            (dev_id, leng, ptype, mac, JoinEUI, DevNonce, req_sf) = struct.unpack("BBBQQIB", x)
-            print(str(dev_id), str(leng), str(ptype), hex(mac), hex(JoinEUI), str(DevNonce), str(req_sf))
+            (dev_id, ptype, mac, JoinEUI, DevNonce, req_sf, rcrc) = struct.unpack("BBQQIBI", x)
+            print(dev_id, ptype, hex(mac), hex(JoinEUI), DevNonce, req_sf, rcrc)
         except:
             print("could not unpack!")
             exp_is_running = 0
             led.value(0)
         else:
-            if (len(hex(mac)+hex(JoinEUI)+str(DevNonce)+str(req_sf)) != leng):
-                print("wrong packet!")
-            print("Received a join request from", dev_id)
-            exists = 0
-            slot = 0
-            for n in registered:
-                (id, nslot) = n
-                if (int(dev_id) == id):
-                    exists = 1
-                    slot = nslot
-            if (exists == 0):
-                slot = index[req_sf]
-                index[req_sf] += 1
-                registered.append([int(dev_id), slot])
-            JoinNonce[int(dev_id)] += 1
-            if (dev_id in stats):
-		stats.remove(dev_id)
-            try:
-                # send/receive data to/from Raspberry Pi
-                wlan_s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                wlan_s.connect(('192.168.0.254', 8000))
-            except:
-                print("Connection to RPi failed!")
-                wlan_s.close()
-                led.value(0)
+            rmsg = b''.join([ptype.to_bytes(1, 'big'), mac.to_bytes(8, 'big'), JoinEUI.to_bytes(8, 'big'), DevNonce.to_bytes(4, 'big'), req_sf.to_bytes(1, 'big')])
+            if (ubinascii.crc32(rmsg) != rcrc):
+                print("CRC failed")
             else:
-                print(str(dev_id)+":"+str(slot)+":"+hex(mac)[2:]+":"+str(JoinNonce[dev_id])+":"+hex(JoinEUI)[2:]+":"+str(DevNonce))
-                wlan_s.send(str(dev_id)+":"+str(slot)+":"+hex(mac)[2:]+":"+
-                            str(JoinNonce[dev_id])+":"+hex(JoinEUI)[2:]+":"+str(DevNonce))
-                msg = wlan_s.recv(512)
+                print("Received a join request from", dev_id)
+                exists = 0
+                slot = 0
+                for n in registered:
+                    (id, nslot) = n
+                    if (int(dev_id) == id):
+                        exists = 1
+                        slot = nslot
+                if (exists == 0):
+                    slot = index[req_sf]
+                    index[req_sf] += 1
+                    registered.append([int(dev_id), slot])
+                JoinNonce[int(dev_id)] += 1
+                if (dev_id in stats):
+    		        stats.remove(dev_id)
                 try:
-                    (rdev_id, leng, DevAddr, AppSkey) = struct.unpack("BBI%ds" % msg[1], msg)
-                    print("Received from RPi:", rdev_id, hex(DevAddr), AppSkey)
+                    # send/receive data to/from Raspberry Pi
+                    wlan_s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    wlan_s.connect(('192.168.0.254', 8000))
                 except:
-                    print("wrong RPi packet format!")
+                    print("Connection to RPi failed!")
                     wlan_s.close()
                     led.value(0)
                 else:
+                    print(str(dev_id)+":"+str(slot)+":"+hex(mac)[2:]+":"+str(JoinNonce[dev_id])+":"+hex(JoinEUI)[2:]+":"+str(DevNonce))
+                    wlan_s.send(str(dev_id)+":"+str(slot)+":"+hex(mac)[2:]+":"+
+                                str(JoinNonce[dev_id])+":"+hex(JoinEUI)[2:]+":"+str(DevNonce))
+                    msg = wlan_s.recv(512)
                     try:
-                        # send registered node info to the data gateway
-                        pkt = struct.pack("BBB%ds" % len(AppSkey), dev_id, len(AppSkey), int(slot), AppSkey)
-                        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                        s.connect(('192.168.0.'+str(req_sf), 8000))
-                        s.send(pkt)
+                        (rdev_id, leng, DevAddr, AppSkey) = struct.unpack("BBI%ds" % msg[1], msg)
+                        print("Received from RPi:", rdev_id, hex(DevAddr), AppSkey)
                     except:
-                        print("Data-gw socket error")
+                        print("wrong RPi packet format!")
                         wlan_s.close()
-                        s.close()
                         led.value(0)
                     else:
-                        # send DevAddr and JoinNonce to the node
-                        msg = str(dev_id)+hex(DevAddr)[2:]+str(JoinNonce[dev_id])
-                        lora.set_frequency(freqs[1])
-                        pkg = struct.pack("BBBII", MY_ID, len(msg), dev_id, DevAddr, JoinNonce[dev_id])
-                        # I should encrypt that using node's AppKey
-                        lora.send(pkg)
-                        lora.standby()
-                        print("Responded with a join accept!")
-                        lora.set_frequency(freqs[0])
-                        wlan_s.close()
-                        s.close()
-                        led.value(0)
+                        try:
+                            # send registered node info to the data gateway
+                            pkt = struct.pack("BBB%ds" % len(AppSkey), dev_id, len(AppSkey), int(slot), AppSkey)
+                            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                            s.connect(('192.168.0.'+str(req_sf), 8000))
+                            s.send(pkt)
+                        except:
+                            print("Data-gw socket error")
+                            wlan_s.close()
+                            s.close()
+                            led.value(0)
+                        else:
+                            # send DevAddr and JoinNonce to the node
+                            msg = str(dev_id)+hex(DevAddr)[2:]+str(JoinNonce[dev_id])
+                            pkg = struct.pack("BBBII", MY_ID, len(msg), dev_id, DevAddr, JoinNonce[dev_id])
+                            # I should encrypt that using node's AppKey
+                            lora.send(pkg)
+                            lora.standby()
+                            print("Responded with a join accept!")
+                            wlan_s.close()
+                            s.close()
+                            led.value(0)
     elif (len(x) > 2) and (x[2] == 2):  # the packet is a statistics packet
         try:
             (dev_id, leng, ptype, i, succeeded, retrans, dropped, rx, tx) = struct.unpack("BBBHHHHff", x)
@@ -225,7 +222,7 @@ def exp_start():
                     _thread.start_new_thread(receive_req, ())
                     print("Ready to accept new join requests!")
                     time.sleep(1)
-                    pkg = struct.pack(_LORA_PKG_FORMAT % len(msg), MY_ID, len(msg), msg)
+                    pkg = struct.pack('BB%ds' % len(msg), MY_ID, len(msg), msg)
                     lora.send(pkg)
                     oled_lines("TS-LoRa", "Requests GW", wlan.ifconfig()[0], "Sent new exp")
                     lora.standby()

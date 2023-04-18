@@ -1,3 +1,11 @@
+v1.1.0_TTGO (18/04/2023)
+- ESP32 project renamed to TTGO
+- added CRC in all LoRa packets
+- changed default freq for gw_req to 869.525
+- fixed DevNonce increment
+- fixed incorrect packet size overhead
+- other minor fixes
+
 v1.0.5_ESP32 (02/12/2022)
 - fixes when running with several nodes
 - tested with 3 TTGOs @ 868MHz

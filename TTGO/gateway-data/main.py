@@ -42,8 +42,6 @@ def oled_lines(line1, line2, line3, line4):
     oled.text(line4, 0, 30)
     oled.show()
 
-oled_lines("TS-LoRa", "Data GW SF7", " ", " ")
-
 # SPI pins
 SCK  = 5
 MOSI = 27
@@ -62,11 +60,8 @@ spi.init()
 
 lora = LoRa( spi, cs=Pin(CS, Pin.OUT), rx=Pin(RX, Pin.IN), )
 
-_LORA_PKG_FORMAT = "!BB%ds"
-_LORA_RCV_PKG_FORMAT = "!BB%ds"
 MY_ID = 0x02
 freqs = [868.1, 868.3, 868.5, 867.1, 867.3, 867.5, 867.7, 867.9]
-# freqs = [903.9, 904.1, 904.3, 904.5, 904.7, 904.9, 905.1, 905.3]
 # freqs = [433.175, 433.325, 433.475, 433.625, 433.775, 433.925, 434.075, 434.225] # 433.175 - 434.665 according to heltec
 my_sf = int(MY_ID) + 5
 (guard, my_bw_index, packet_size) = (15, 0, 16) # the packet size must align with the nodes packet size
@@ -74,22 +69,24 @@ index = 0
 slot = {}
 KEY = {}
 
+oled_lines("TS-LoRa", "Data GW SF"+str(my_sf), " ", " ")
+
 wlan = network.WLAN(network.STA_IF)
 wlan.active(True)
 mac = ubinascii.hexlify(wlan.config('mac')).decode().upper()
 mac = ':'.join(mac[i:i+2] for i in range(0,12,2))
 print(mac)
-oled_lines("TS-LoRa", "Data GW SF7", mac, " ")
+oled_lines("TS-LoRa", "Data GW SF"+str(my_sf), mac, " ")
 if not wlan.isconnected():
     print('connecting to network...')
     wlan.connect('rasp', 'lalalala')
     while not wlan.isconnected():
         pass
 # print('network config:', wlan.ifconfig())
-oled_lines("TS-LoRa", "Data GW SF7", wlan.ifconfig()[0], " ")
+oled_lines("TS-LoRa", "Data GW SF"+str(my_sf), wlan.ifconfig()[0], " ")
 
 lora.set_spreading_factor(my_sf)
-lora.set_frequency(freqs[my_sf-5])
+lora.set_frequency(freqs[my_sf-7])
 
 # this is borrowed from LoRaSim (https://www.lancaster.ac.uk/scc/sites/lora/lorasim.html)
 def airtime_calc(sf,cr,pl,bw):
@@ -146,13 +143,16 @@ def handler(recv_pkg):
         recv_pkg_len = recv_pkg[1]
         recv_pkg_id = recv_pkg[0]
         if (recv_pkg_len == packet_size):
-            dev_id, leng, msg = struct.unpack(_LORA_RCV_PKG_FORMAT % recv_pkg_len, recv_pkg)
-            if (len(msg) == packet_size): # format check
+            (dev_id, leng, msg, rcrc) = struct.unpack('BB%dsI' % recv_pkg_len, recv_pkg)
+            crc = ubinascii.crc32(msg)
+            if (len(msg) == packet_size) and (crc == rcrc): # format check
                 received += 1
                 print("Received data from:", dev_id)
                 msg = aes(KEY[dev_id], 1).encrypt(msg)
                 # print("Decrypted text:", msg)
                 acks.append(str(dev_id))
+            else:
+                print("Wrong packet size or CRC error")
     lora.recv()
 
 def receive_data():
@@ -165,7 +165,7 @@ def receive_data():
     global lora
     guard = 1000*guard
     (overall_received, overall_sent) = (0, 0)
-    airt = int(airtime_calc(my_sf,1,packet_size+2,125)*1000)
+    airt = int(airtime_calc(my_sf,1,packet_size+6,125)*1000)
     duty_cycle_limit_slots = math.ceil(100*airt/(airt + 2*guard))
     print("duty cycle slots:", duty_cycle_limit_slots)
     print("packet airtime (ms):", airt/1000)
@@ -209,7 +209,6 @@ def receive_data():
                     ack_msg = ack_msg+"0"
         if (ack_msg == ""):
             ack_msg += "0"
-        # ack_msg = int(ack_msg, 2)
         acks = ""
         while(len(ack_msg) > 4):
             ack_ = ack_msg[:4]
@@ -224,8 +223,9 @@ def receive_data():
         print("proc time (ms):", proc_t)
         sync_start = chrono.read_us()
         time.sleep_us(guard)
-        # data = str(index+1)+str(proc_t)+hex(ack_msg)
-        pkg = struct.pack("BBBB%ds" % len(acks), MY_ID, len(acks), index+1, proc_t, acks)
+        msg = b''.join([(index+1).to_bytes(1, 'big'), proc_t.to_bytes(1, 'big'), acks.encode()])
+        crc = ubinascii.crc32(msg)
+        pkg = struct.pack("BBBB%dsI" % len(acks), MY_ID, len(acks), index+1, proc_t, acks, crc)
         led.value(1)
         lora.send(pkg)
         print("Sent sync: "+acks)
