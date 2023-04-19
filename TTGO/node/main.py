@@ -70,15 +70,18 @@ def req_handler(recv_pkg):
     global DevAddr
     global JoinNonce
     global oled_list
-    # print(recv_pkg)
+    global join_accept
+    print(recv_pkg)
     if (len(recv_pkg) > 2):
         recv_pkg_len = recv_pkg[1]
         recv_pkg_id = recv_pkg[0]
         if (int(recv_pkg_id) == 1):
             (id, dev_id, DevAddr, JoinNonce, rcrc) = struct.unpack("BBIII", recv_pkg)
             # print('Received response from', id, dev_id, hex(DevAddr), JoinNonce, rcrc)
-            msg = b''.join([int(dev_id).to_bytes(1, 'big'), int(DevAddr).to_bytes(4, 'big'), JoinNonce.to_bytes(4, 'big')])
+            msg = b''.join([int(dev_id).to_bytes(1, 'big'), DevAddr.to_bytes(4, 'big'), JoinNonce.to_bytes(4, 'big')])
+            print(ubinascii.crc32(msg), rcrc)
             if (int(id) == 1 and int(dev_id) == int(MY_ID) and ubinascii.crc32(msg) == rcrc):
+                join_accept = 1
                 print("...join accept packet OK")
                 oled_list.append("Rcved join accept")
                 oled_lines()
@@ -97,14 +100,17 @@ def join_request():
     global DevNonce
     global AppSKey
     global oled_list
+    global join_accept
     lora.set_spreading_factor(12)
     lora.set_frequency(freqs[-1])
     while (True):
+        join_accept = 0
         rmsg = b''.join([b'1', DevEUI.to_bytes(8, 'big'), JoinEUI.to_bytes(8, 'big'), DevNonce.to_bytes(4, 'big'), my_sf.to_bytes(1, 'big')])
         crc = ubinascii.crc32(rmsg)
         print(MY_ID, "1", hex(DevEUI), hex(JoinEUI), DevNonce, my_sf, crc)
         pkg = struct.pack("BBQQIBI", MY_ID, 0x01, DevEUI, JoinEUI, DevNonce, my_sf, crc)
         lora.standby()
+        lora.set_implicit(True)
         led.value(1)
         start = chrono.read_ms()
         lora.send(pkg)
@@ -114,17 +120,18 @@ def join_request():
         print("Join request sent!")
         oled_list.append("Join req. sent")
         oled_lines()
+        lora.set_coding_rate(5)
+        lora.set_payload_length(14) # implicit header
         time.sleep_ms(100)
-        lora.set_frequency(freqs[-1])
         start = chrono.read_ms()
         lora.on_recv(req_handler)
         lora.recv()
         while(chrono.read_ms() - start < 5000):
-            if(DevAddr != ""):
+            if(join_accept == 1):
                 break
         lora.sleep()
         active_rx += chrono.read_ms()-start
-        if (str(DevAddr) == ""):
+        if (join_accept == 0):
             print("No answer received!")
             random_sleep(5)
             DevNonce += 0x00000001
@@ -189,6 +196,7 @@ def sync():
     global oled_list
     lora.set_spreading_factor(my_sf)
     lora.set_frequency(freqs[my_sf-7])
+    lora.set_implicit(False) # switch back to explicit mode without CRC
     sync_start = chrono.read_us()
     sack_rcv = 0
     index = 0
@@ -529,6 +537,9 @@ DevAddr = ""
 get_id()
 
 (my_sf, my_bw_plain, guard, my_slot, packet_size) = (0x07, 125, 15000, -1, 16) # default values
+lora.set_preamble_length(10)
+lora.set_crc(False)
+lora.set_implicit(False)
 index = 0
 S = 1000
 active_rx = 0.0

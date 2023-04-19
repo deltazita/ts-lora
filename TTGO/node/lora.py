@@ -1,4 +1,4 @@
-# https://github.com/wybiral/micropython-lora
+# modified version of https://github.com/wybiral/micropython-lora
 import gc
 from machine import Pin
 import time
@@ -42,8 +42,6 @@ MODE_SLEEP = 0x00
 MODE_STDBY = 0x01
 MODE_TX = 0x03
 MODE_RX_CONTINUOUS = 0x05
-MODE_RX_ONCE = 0x06
-MODE_CAD = 0x07
 
 IRQ_TX_DONE_MASK = 0x08
 IRQ_PAYLOAD_CRC_ERROR_MASK = 0x20
@@ -56,13 +54,11 @@ class LoRa:
         self.spi = spi
         self.cs = kw['cs']
         self.rx = kw['rx']
-        self.cad = kw['cad']
         while self._read(REG_VERSION) != 0x12: # for some reason this fails sometimes
             time.sleep_ms(10)
         if self._read(REG_VERSION) != 0x12: # normally this should never happen
             raise Exception('Invalid version or bad SPI connection')
         self.sleep()
-        self._write(REG_OP_MODE, MODE_LORA)
         self.set_frequency(kw.get('frequency', 868.0))
         self.set_bandwidth(kw.get('bandwidth', 125000))
         self.set_spreading_factor(kw.get('spreading_factor', 7))
@@ -78,7 +74,6 @@ class LoRa:
         self.set_implicit(self._implicit)
         self.set_sync_word(kw.get('sync_word', 0x12))
         self._on_recv = kw.get('on_recv', None)
-        self._cad = kw.get('cad', None)
         self._write(REG_FIFO_TX_BASE_ADDR, TX_BASE_ADDR)
         self._write(REG_FIFO_RX_BASE_ADDR, RX_BASE_ADDR)
         self.standby()
@@ -132,11 +127,6 @@ class LoRa:
     def sleep(self):
         self._write(REG_OP_MODE, MODE_LORA | MODE_SLEEP)
 
-    def cad_on(self):
-        reg_val = self._read(REG_DIO_MAPPING_1)
-        self._write(REG_DIO_MAPPING_1, (reg_val & 0xFC) | 0x00)
-        self._write(REG_OP_MODE, MODE_LORA | MODE_CAD)
-
     def set_tx_power(self, level, outputPin=PA_OUTPUT_PA_BOOST_PIN):
         if outputPin == PA_OUTPUT_RFO_PIN:
             level = min(max(level, 0), 14)
@@ -183,6 +173,16 @@ class LoRa:
         self._write(REG_PREAMBLE_MSB, (n >> 8) & 0xff)
         self._write(REG_PREAMBLE_LSB, (n >> 0) & 0xff)
 
+    def set_payload_length(self, n):
+        m = self._read(REG_PAYLOAD_LENGTH)
+        p = MAX_PKT_LENGTH - TX_BASE_ADDR
+        if n + m > p:
+            raise ValueError('Max payload length is ' + str(p))
+        if self._implicit:
+            self._write(REG_PAYLOAD_LENGTH, m+n)
+        else:
+            raise ValueError("Not in impicit mode")
+
     def set_crc(self, crc=False):
         modem_config_2 = self._read(REG_MODEM_CONFIG_2)
         if crc:
@@ -204,17 +204,6 @@ class LoRa:
                 config = modem_config_1 & 0xfe
             self._write(REG_MODEM_CONFIG_1, config)
 
-    def cad_recv(self, callback):
-        self._cad = callback
-        if self.cad and callback:
-            return self.cad.irq(handler=self._irq_cad, trigger=Pin.IRQ_RISING)
-
-    def _irq_cad(self, event_source):
-        if ((self._read(REG_IRQ_FLAGS) & 0x01) == 0x01):
-            self._write(REG_IRQ_FLAGS, 0x01 | 0x04)
-            return True
-        return False
-
     def on_recv(self, callback):
         self._on_recv = callback
         if self.rx:
@@ -226,9 +215,6 @@ class LoRa:
 
     def recv(self):
         self._write(REG_OP_MODE, MODE_LORA | MODE_RX_CONTINUOUS)
-
-    def recv_once(self):
-        self._write(REG_OP_MODE, MODE_LORA | MODE_RX_ONCE)
 
     def _irq_recv(self, event_source):
         f = self._get_irq_flags()

@@ -83,6 +83,11 @@ oled_lines("TS-LoRa", "Requests GW", wlan.ifconfig()[0], " ")
 
 lora.set_spreading_factor(12)
 lora.set_frequency(freqs[-1])
+lora.set_preamble_length(10)
+lora.set_crc(False)
+lora.set_implicit(True)
+lora.set_coding_rate(5)
+lora.set_payload_length(27) # implicit header is on
 
 # wait for requests
 for i in range(7, 13):
@@ -97,18 +102,19 @@ def handler(x):
     global JoinNonce
     global stats
     global registered
-    #print(x[0], x[2])
-    if (len(x) > 2) and (x[1] == 1):
+    print(x, len(x))
+    if (len(x) > 20) and (x[1] == 1):
         led.value(1)
         try:
             (dev_id, ptype, mac, JoinEUI, DevNonce, req_sf, rcrc) = struct.unpack("BBQQIBI", x)
             print(dev_id, ptype, hex(mac), hex(JoinEUI), DevNonce, req_sf, rcrc)
         except:
             print("could not unpack!")
-            exp_is_running = 0
+            # exp_is_running = 0
             led.value(0)
         else:
-            rmsg = b''.join([ptype.to_bytes(1, 'big'), mac.to_bytes(8, 'big'), JoinEUI.to_bytes(8, 'big'), DevNonce.to_bytes(4, 'big'), req_sf.to_bytes(1, 'big')])
+            rmsg = b''.join([b'1', mac.to_bytes(8, 'big'), JoinEUI.to_bytes(8, 'big'), DevNonce.to_bytes(4, 'big'), int(req_sf).to_bytes(1, 'big')])
+            print(ubinascii.crc32(rmsg), rcrc)
             if (ubinascii.crc32(rmsg) != rcrc):
                 print("CRC failed")
             else:
@@ -161,12 +167,18 @@ def handler(x):
                             led.value(0)
                         else:
                             # send DevAddr and JoinNonce to the node
-                            msg = str(dev_id)+hex(DevAddr)[2:]+str(JoinNonce[dev_id])
-                            pkg = struct.pack("BBBII", MY_ID, len(msg), dev_id, DevAddr, JoinNonce[dev_id])
+                            rmsg = b''.join([dev_id.to_bytes(1, 'big'), DevAddr.to_bytes(4, 'big'), JoinNonce[dev_id].to_bytes(4, 'big')])
+                            crc = ubinascii.crc32(rmsg)
+                            pkg = struct.pack("BBIII", MY_ID, dev_id, DevAddr, JoinNonce[dev_id], crc)
                             # I should encrypt that using node's AppKey
                             lora.send(pkg)
                             lora.standby()
                             print("Responded with a join accept!")
+                            lora.set_preamble_length(10)
+                            lora.set_crc(False)
+                            lora.set_implicit(True)
+                            lora.set_coding_rate(5)
+                            lora.set_payload_length(27) # implicit header is on
                             wlan_s.close()
                             s.close()
                             led.value(0)
