@@ -8,6 +8,7 @@ import binascii
 import os
 from Crypto.Cipher import AES
 import struct
+from datetime import datetime
 
 S = 1000
 bind_ip = '192.168.0.254'
@@ -27,12 +28,17 @@ server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.bind((bind_ip, bind_port))
 server.listen(5)  # max backlog of connections
 
-print("Listening on:", bind_ip, bind_port)
+f = open("server.log", "a")
+print ("Listening on:", bind_ip, bind_port)
+f.write(str(datetime.now())+" Listening on: "+str(bind_ip)+" "+str(bind_port)+"\n")
+f.flush()
 
 def handle_client_connection(client_socket):
     request = client_socket.recv(1024)
     request = request.decode('utf-8')
-    print ("Received: ", request)
+    print (datetime.now(), "Received:", request)
+    f.write(str(datetime.now())+" Received: "+request+"\n")
+    f.flush()
     (id, index, mac, JoinNonce, JoinEUI, DevNonce) = str(request).split(":")
     # compute a DevAddr
     DevAddr = hex(random.getrandbits(32))[2:][:-1]
@@ -61,15 +67,18 @@ def handle_client_connection(client_socket):
     AppSKey = encryptor.encrypt(binascii.unhexlify(text.encode('utf-8')))
     msg = struct.pack("BBI%ds" % len(AppSKey), int(id), len(AppSKey), int(DevAddr,16), AppSKey)
     client_socket.send( msg )
-    print("Responded: "+str(id)+" "+str(DevAddr)+" "+"AppSKey")
+    print (datetime.now(), "Responded: "+str(id)+" "+str(DevAddr)+" "+"AppSKey")
+    f.write(str(datetime.now())+" Responded: "+str(id)+" "+str(DevAddr)+" "+"AppSKey"+"\n")
+    f.flush()
     client_socket.close()
-
 
 while True:
     client_sock, address = server.accept()
-    print ("Accepted connection from: ", address[0], address[1])
+    print ("Accepted connection from:", address[0], address[1])
     client_handler = threading.Thread(
         target=handle_client_connection,
         args=(client_sock,)
     )
     client_handler.start()
+
+f.close()
