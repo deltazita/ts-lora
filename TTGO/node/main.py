@@ -308,8 +308,8 @@ def start_transmissions():
     print("SACK slot length (ms):", sync_slot/1000)
     print("Gw processing time (ms):", proc_gw)
     print("Time after SACK rec (ms):", (chrono.read_us()-sack_rcv)/1000)
-    i = 0x0001
-    (succeeded, retrans, dropped, active_rx, active_tx) = (0, 0, 0, 0.0, 0.0)
+    i = 0x00000001
+    (succeeded, retrans, dropped, active_rx, active_tx) = (0x00000000, 0x00000000, 0x00000000, 0.0, 0.0)
     print("S T A R T")
     while(1):
         print(i, "----------------------------------------------------")
@@ -445,15 +445,15 @@ def start_transmissions():
     print("I'm sending stats")
     # print("Sending", MY_ID, i-1, "2", succeeded, retrans, dropped, str(active_rx/1e6), str(active_tx/1e6))
     leng = len(bytes(MY_ID+(i-1)+(0x02)+succeeded+retrans+dropped))+8
-    pkg = struct.pack("BBBHHHHff", MY_ID, leng, 0x02, int(i-1), int(succeeded), int(retrans),
-                        int(dropped), active_rx/1e6, active_tx/1e6) # are 2 bytes enough?
+    pkg = struct.pack("BBBiiiiff", MY_ID, leng, 0x02, int(i-1), int(succeeded), int(retrans),
+                        int(dropped), active_rx/1e6, active_tx/1e6) # 27 bytes
     lora.set_spreading_factor(12)
     lora.set_frequency(freqs[-1])
     for x in range(3): # send it out 3 times
         led.value(1)
         lora.send(pkg)
         lora.sleep()
-        random_sleep(5)
+        random_sleep(10)
     led.value(0)
 
 def init_handler(recv_pkg):
@@ -531,7 +531,7 @@ my_mac = " "
 DevAddr = ""
 get_id()
 
-(my_sf, my_bw_plain, guard, my_slot, packet_size) = (0x09, 125, 15000, -1, 16) # default values
+(my_sf, my_bw_plain, guard, my_slot, packet_size) = (0x07, 125, 15000, -1, 16) # default values
 lora.set_preamble_length(10)
 lora.set_crc(False)
 lora.set_implicit(False)
