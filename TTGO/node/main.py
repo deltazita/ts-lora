@@ -55,11 +55,7 @@ def airtime_calc(sf,cr,pl,bw):
     DE = 0       # low data rate optimization enabled (=1) or not (=0)
     Npream = 8
     if bw == 125 and sf in [11, 12]:
-        # low data rate optimization mandated for BW125 with SF11 and SF12
         DE = 1
-    if sf == 6:
-        # can only have implicit header with SF6
-        H = 1
     Tsym = (2.0**sf)/bw
     Tpream = (Npream + 4.25)*Tsym
     payloadSymbNB = 8 + max(math.ceil((8.0*pl-4.0*sf+28+16-20*H)/(4.0*(sf-2*DE)))*(cr+4),0)
@@ -71,7 +67,7 @@ def req_handler(recv_pkg):
     global JoinNonce
     global oled_list
     global join_accept
-    print(recv_pkg)
+    # print(recv_pkg)
     if (len(recv_pkg) > 2):
         recv_pkg_len = recv_pkg[1]
         recv_pkg_id = recv_pkg[0]
@@ -79,7 +75,6 @@ def req_handler(recv_pkg):
             (id, dev_id, DevAddr, JoinNonce, rcrc) = struct.unpack("BBIII", recv_pkg)
             # print('Received response from', id, dev_id, hex(DevAddr), JoinNonce, rcrc)
             msg = b''.join([int(dev_id).to_bytes(1, 'big'), DevAddr.to_bytes(4, 'big'), JoinNonce.to_bytes(4, 'big')])
-            print(ubinascii.crc32(msg), rcrc)
             if (int(id) == 1 and int(dev_id) == int(MY_ID) and ubinascii.crc32(msg) == rcrc):
                 join_accept = 1
                 print("...join accept packet OK")
@@ -536,7 +531,7 @@ my_mac = " "
 DevAddr = ""
 get_id()
 
-(my_sf, my_bw_plain, guard, my_slot, packet_size) = (0x07, 125, 15000, -1, 16) # default values
+(my_sf, my_bw_plain, guard, my_slot, packet_size) = (0x09, 125, 15000, -1, 16) # default values
 lora.set_preamble_length(10)
 lora.set_crc(False)
 lora.set_implicit(False)

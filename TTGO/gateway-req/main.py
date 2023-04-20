@@ -81,6 +81,7 @@ if not wlan.isconnected():
 print(wlan.ifconfig())
 oled_lines("TS-LoRa", "Requests GW", wlan.ifconfig()[0], " ")
 
+lora.standby()
 lora.set_spreading_factor(12)
 lora.set_frequency(freqs[-1])
 lora.set_preamble_length(10)
@@ -172,19 +173,13 @@ def handler(x):
                             pkg = struct.pack("BBIII", MY_ID, dev_id, DevAddr, JoinNonce[dev_id], crc)
                             # I should encrypt that using node's AppKey
                             lora.send(pkg)
-                            lora.standby()
                             print("Responded with a join accept!")
-                            lora.set_preamble_length(10)
-                            lora.set_crc(False)
-                            lora.set_implicit(True)
-                            lora.set_coding_rate(5)
-                            lora.set_payload_length(27) # implicit header is on
                             wlan_s.close()
                             s.close()
                             led.value(0)
-    elif (len(x) > 2) and (x[2] == 2):  # the packet is a statistics packet
+    elif (len(x) > 20) and (x[2] == 2):  # the packet is a statistics packet
         try:
-            (dev_id, leng, ptype, i, succeeded, retrans, dropped, rx, tx) = struct.unpack("BBBHHHHff", x)
+            (dev_id, leng, ptype, i, succeeded, retrans, dropped, rx, tx, rcrc) = struct.unpack("BBBiiiiff", x) # this must also be 27b long
         except:
             print("wrong stat packet format!")
         else:
@@ -192,9 +187,11 @@ def handler(x):
                 print("Received stats from", dev_id)
                 print('Node %d: %d %d %d %d %f %f' % (dev_id, i, succeeded, retrans, dropped, rx, tx))
                 stats.append(dev_id)
+    lora.set_payload_length(27)
     lora.recv()
 
 def receive_req():
+    global lora
     global registered
     registered = []
     lora.on_recv(handler)
