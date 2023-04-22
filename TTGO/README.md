@@ -1,12 +1,8 @@
 # TS-LoRa 
 
-Experimental implementation for native ESP32 devices like Heltec, TTGO etc.
+Implementation for native ESP32 devices such as Heltec v2, TTGO v1.2 etc.
 
-Tested only with 1 node and 1 type of device (Heltec LoRa32 V2, 433MHz, SF7)
-
-Some functionalities are still missing. Work in progress...
-
-Currently not compatible with Pycom devices (use the main code instead).
+Tested with several nodes and SF7-9
 
 LoRa library: https://github.com/wybiral/micropython-lora
 
