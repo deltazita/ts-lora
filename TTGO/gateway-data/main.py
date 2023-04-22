@@ -60,7 +60,7 @@ spi.init()
 
 lora = LoRa( spi, cs=Pin(CS, Pin.OUT), rx=Pin(RX, Pin.IN), )
 
-MY_ID = 0x02
+MY_ID = 0x04
 freqs = [868.1, 868.3, 868.5, 867.1, 867.3, 867.5, 867.7, 867.9]
 # freqs = [433.175, 433.325, 433.475, 433.625, 433.775, 433.925, 434.075, 434.225] # 433.175 - 434.665 according to heltec
 my_sf = int(MY_ID) + 5
@@ -153,7 +153,7 @@ def handler(recv_pkg):
                 acks.append(str(dev_id))
             else:
                 print("Wrong packet size or CRC error")
-    lora.recv()
+    #lora.recv()
 
 def receive_data():
     global index
@@ -182,22 +182,23 @@ def receive_data():
         received = 0
         acks = []
         if (int(index) > duty_cycle_limit_slots):
-            round_length = math.ceil(int(index)*(airt + 2*guard))
+            data_length = math.ceil(int(index)*(airt + 2*guard))
         else:
-            round_length = math.ceil(duty_cycle_limit_slots*(airt + 2*guard))
+            data_length = math.ceil(duty_cycle_limit_slots*(airt + 2*guard))
         rec_start = chrono.read_us()
         led.value(0)
+        print("Started receiving at (ms):", chrono.read_us()/1000)
         lora.on_recv(handler)
         lora.recv()
-        while ((chrono.read_us() - round_start) < round_length-(airt + 2*guard)): # kill the last slot
+        while ((chrono.read_us() - round_start) < data_length):
             idle()
         print(received, "packet(s) received")
-        rec_lasted = chrono.read_us()-rec_start
-        if (rec_lasted < round_length):
-            print("I'll sleep a bit to align with the round length")
-            time.sleep_us(int(round_length-rec_lasted))
+        #rec_lasted = chrono.read_us()-rec_start
+        #if (rec_lasted < data_length):
+        #    print("I'll sleep a bit to align with the round length")
+        #    time.sleep_us(int(data_length-rec_lasted))
         print("Receiving lasted (ms):", (chrono.read_us()-rec_start)/1000)
-        print("...should last (ms):", round_length/1000)
+        #print("...should last (ms):", data_length/1000)
         proc_t = chrono.read_us()
         ack_msg = ""
         for n in range(int(index)+1):
@@ -221,17 +222,17 @@ def receive_data():
         proc_t = chrono.read_us()-proc_t
         proc_t = int(proc_t/1000 + 0.5)
         print("proc time (ms):", proc_t)
-        sync_start = chrono.read_us()
+        #sync_start = chrono.read_us()
         time.sleep_us(guard)
         msg = b''.join([(index+1).to_bytes(1, 'big'), proc_t.to_bytes(1, 'big'), acks.encode()])
         crc = ubinascii.crc32(msg)
         pkg = struct.pack("BBBB%dsI" % len(acks), MY_ID, len(acks), index+1, proc_t, acks, crc)
         led.value(1)
+        print("Sending SACK:", acks, "at", chrono.read_ms(), "ms")
         lora.send(pkg)
-        print("Sent sync: "+acks)
         led.value(0)
         time.sleep_ms(100) # node time after sack
-        print("sync lasted (ms):", (chrono.read_us()-sync_start)/1000)
+        #print("time after data (ms):", (chrono.read_us()-proc_t)/1000)
         print("round lasted (ms):", (chrono.read_us()-round_start)/1000)
         i += 1
 
