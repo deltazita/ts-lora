@@ -36,6 +36,8 @@ REG_DETECTION_THRESHOLD = 0x37
 REG_SYNC_WORD = 0x39
 REG_DIO_MAPPING_1 = 0x40
 REG_VERSION = 0x42
+REG_IMAGE_CAL = 0x3B
+REG_TEMPERATURE = 0x3C
 
 MODE_LORA = 0x80
 MODE_SLEEP = 0x00
@@ -120,6 +122,9 @@ class LoRa:
 
     def get_snr(self):
         return self._read(REG_PKT_SNR_VALUE) * 0.25
+
+    def get_temperature(self):
+        return self._read(REG_TEMPERATURE)
 
     def standby(self):
         self._write(REG_OP_MODE, MODE_LORA | MODE_STDBY)

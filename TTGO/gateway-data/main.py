@@ -60,10 +60,10 @@ spi.init()
 
 lora = LoRa( spi, cs=Pin(CS, Pin.OUT), rx=Pin(RX, Pin.IN), )
 
-MY_ID = 0x04
+MY_ID = 0x02 # 2 => SF7, 3 => SF8 etc.
 freqs = [868.1, 868.3, 868.5, 867.1, 867.3, 867.5, 867.7, 867.9]
 # freqs = [433.175, 433.325, 433.475, 433.625, 433.775, 433.925, 434.075, 434.225] # 433.175 - 434.665 according to heltec
-my_sf = int(MY_ID) + 5
+my_sf = int(MY_ID) + 5 # do not change this
 (guard, my_bw_index, packet_size) = (15, 0, 16) # the packet size must align with the nodes packet size
 index = 0
 slot = {}

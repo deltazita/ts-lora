@@ -10,7 +10,7 @@ from Crypto.Cipher import AES
 import struct
 from datetime import datetime
 
-S = 1000
+S = 251
 bind_ip = '192.168.0.254'
 bind_port = 8000
 
@@ -35,42 +35,50 @@ f.flush()
 
 def handle_client_connection(client_socket):
     request = client_socket.recv(1024)
-    request = request.decode('utf-8')
-    print (datetime.now(), "Received:", request)
-    f.write(str(datetime.now())+" Received: "+request+"\n")
-    f.flush()
-    (id, index, mac, JoinNonce, JoinEUI, DevNonce) = str(request).split(":")
-    # compute a DevAddr
-    DevAddr = hex(random.getrandbits(32))[2:][:-1]
-    text = "".join([str(DevAddr), str(mac)])
-    while (len(text) < 8):
-        text = "".join([text,"0"])
-    thash = hashlib.sha256()
-    thash.update(text.encode('utf-8'))
-    thash = thash.digest()
-    slot = (int(binascii.hexlify(thash), 16)) % S
-    while(slot != int(index)):
-        DevAddr = hex(random.getrandbits(32))[2:][:-1]
-        text = "".join([DevAddr, mac])
-        while (len(text) < 8):
-            text = "".join([text,"0"])
-        thash = hashlib.sha256()
-        thash.update(text.encode('utf-8'))
-        thash = thash.digest()
-        slot = (int(binascii.hexlify(thash), 16)) % S
-    # compute the AppSKey
-    AppKey = AK[int(id)-11]
-    text = "".join( [AppKey[:2], JoinNonce, JoinEUI, DevNonce] )
-    while (len(text) < 32):
-        text = "".join([text,"0"])
-    encryptor = AES.new(AppKey, AES.MODE_ECB)
-    AppSKey = encryptor.encrypt(binascii.unhexlify(text.encode('utf-8')))
-    msg = struct.pack("BBI%ds" % len(AppSKey), int(id), len(AppSKey), int(DevAddr,16), AppSKey)
-    client_socket.send( msg )
-    print (datetime.now(), "Responded: "+str(id)+" "+str(DevAddr)+" "+"AppSKey")
-    f.write(str(datetime.now())+" Responded: "+str(id)+" "+str(DevAddr)+" "+"AppSKey"+"\n")
-    f.flush()
-    client_socket.close()
+    try:
+        (id, index, mac, JoinNonce, JoinEUI, DevNonce, rcrc) = struct.unpack('BBQIQII', request)
+    except:
+        print ("Could not unpack")
+    else:
+        rmsg = b''.join([int(id).to_bytes(1, 'big'), int(index).to_bytes(1, 'big'), mac.to_bytes(8, 'big'), JoinNonce.to_bytes(4, 'big'), JoinEUI.to_bytes(8, 'big'), DevNonce.to_bytes(4, 'big')])
+        crc = binascii.crc32(rmsg)
+        print (datetime.now(), "-- Received:", id, index, hex(mac), JoinNonce, JoinEUI, DevNonce, hex(rcrc), hex(crc))
+        f.write(str(datetime.now())+" -- Received request from "+str(id)+"\n")
+        f.flush()
+        if (crc == rcrc):
+            # compute a DevAddr
+            DevAddr = hex(random.getrandbits(32))[2:][:-1]
+            text = "".join([DevAddr, hex(mac)[2:]])
+            while (len(text) < 8):
+                text = "".join([text,"0"])
+            thash = hashlib.sha256()
+            thash.update(text.encode('utf-8'))
+            thash = thash.digest()
+            slot = (int(binascii.hexlify(thash), 16)) % S
+            while(slot != int(index)):
+                DevAddr = hex(random.getrandbits(32))[2:][:-1]
+                text = "".join([DevAddr, hex(mac)[2:]])
+                while (len(text) < 8):
+                    text = "".join([text,"0"])
+                thash = hashlib.sha256()
+                thash.update(text.encode('utf-8'))
+                thash = thash.digest()
+                slot = (int(binascii.hexlify(thash), 16)) % S
+            # compute the AppSKey
+            AppKey = AK[int(id)-11]
+            text = struct.pack("BIiI", 0x02, JoinNonce, 0xFFFFFF, DevNonce)
+            while (len(text) % 16 != 0):
+                text = b''.join([text, 0x00])
+            encryptor = AES.new(AppKey, AES.MODE_ECB)
+            AppSKey = encryptor.encrypt(text)
+            msg = struct.pack("BBI%ds" % len(AppSKey), int(id), len(AppSKey), int(DevAddr,16), AppSKey)
+            client_socket.send( msg )
+            print (datetime.now(), "-- Responded: "+str(id)+" "+str(DevAddr)+" "+binascii.hexlify(AppSKey).decode())
+            f.write(str(datetime.now())+" -- Responded: "+str(id)+" "+str(DevAddr)+" "+binascii.hexlify(AppSKey).decode()+"\n")
+            f.flush()
+            client_socket.close()
+        else:
+            print("CRC check failed")
 
 while True:
     client_sock, address = server.accept()

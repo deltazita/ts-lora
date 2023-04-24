@@ -11,14 +11,11 @@ import network
 import binascii
 import ubinascii
 import time
-import uos
 import _thread
 import uerrno
-import sys
-from machine import SoftI2C, Pin, SPI, reset, idle
+from machine import SoftI2C, Pin, SPI
 from lora import LoRa
 import ssd1306
-from time import sleep
 
 # led = Pin(25,Pin.OUT) # Heltec V2
 led = Pin(2,Pin.OUT) # TTGO
@@ -71,10 +68,10 @@ wlan = network.WLAN(network.STA_IF)
 wlan.active(True)
 mac = ubinascii.hexlify(wlan.config('mac')).decode().upper()
 mac = ':'.join(mac[i:i+2] for i in range(0,12,2))
-print(mac)
+print("MAC address:", mac)
 oled_lines("TS-LoRa", "Requests GW", mac, " ")
 if not wlan.isconnected():
-    print('connecting to network...')
+    print('connecting to the network...')
     wlan.connect('rasp', 'lalalala')
     while not wlan.isconnected():
         pass
@@ -103,23 +100,21 @@ def handler(x):
     global JoinNonce
     global stats
     global registered
-    print(x, len(x))
+    #print(x, len(x))
     if (len(x) > 20) and (x[1] == 1):
         led.value(1)
         try:
             (dev_id, ptype, mac, JoinEUI, DevNonce, req_sf, rcrc) = struct.unpack("BBQQIBI", x)
-            print(dev_id, ptype, hex(mac), hex(JoinEUI), DevNonce, req_sf, rcrc)
-        except:
-            print("could not unpack!")
+            print("Received a join-request from:", dev_id, ptype, hex(mac), hex(JoinEUI), DevNonce, req_sf, rcrc)
+        except Exception as e:
+            print("could not unpack!", e)
             # exp_is_running = 0
             led.value(0)
         else:
             rmsg = b''.join([b'1', mac.to_bytes(8, 'big'), JoinEUI.to_bytes(8, 'big'), DevNonce.to_bytes(4, 'big'), int(req_sf).to_bytes(1, 'big')])
-            print(ubinascii.crc32(rmsg), rcrc)
             if (ubinascii.crc32(rmsg) != rcrc):
                 print("CRC failed")
             else:
-                print("Received a join request from", dev_id)
                 exists = 0
                 slot = 0
                 for n in registered:
@@ -138,20 +133,22 @@ def handler(x):
                     # send/receive data to/from Raspberry Pi
                     wlan_s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     wlan_s.connect(('192.168.0.254', 8000))
-                except:
-                    print("Connection to RPi failed!")
+                except Exception as e:
+                    print("Connection to RPi failed!", e)
                     wlan_s.close()
                     led.value(0)
                 else:
-                    print(str(dev_id)+":"+str(slot)+":"+hex(mac)[2:]+":"+str(JoinNonce[dev_id])+":"+hex(JoinEUI)[2:]+":"+str(DevNonce))
-                    wlan_s.send(str(dev_id)+":"+str(slot)+":"+hex(mac)[2:]+":"+
-                                str(JoinNonce[dev_id])+":"+hex(JoinEUI)[2:]+":"+str(DevNonce))
+                    rmsg = b''.join([int(dev_id).to_bytes(1, 'big'), slot.to_bytes(1, 'big'), mac.to_bytes(8, 'big'), JoinNonce[dev_id].to_bytes(4, 'big'), JoinEUI.to_bytes(8, 'big'), int(DevNonce).to_bytes(4, 'big')])
+                    crc = ubinascii.crc32(rmsg)
+                    # print(str(dev_id)+" "+str(slot)+" "+hex(mac)+" "+str(JoinNonce[dev_id])+" "+hex(JoinEUI)+" "+str(DevNonce)+" "+hex(crc))
+                    pkg = struct.pack('BBQIQII', int(dev_id), slot, int(mac), JoinNonce[dev_id], int(JoinEUI), DevNonce, crc)
+                    wlan_s.send(pkg)
                     msg = wlan_s.recv(512)
                     try:
                         (rdev_id, leng, DevAddr, AppSkey) = struct.unpack("BBI%ds" % msg[1], msg)
-                        print("Received from RPi:", rdev_id, hex(DevAddr), AppSkey)
-                    except:
-                        print("wrong RPi packet format!")
+                        print("Received from RPi:", rdev_id, hex(DevAddr), ubinascii.hexlify(AppSkey).decode())
+                    except Exception as e:
+                        print("wrong RPi packet format!", e)
                         wlan_s.close()
                         led.value(0)
                     else:
@@ -161,8 +158,8 @@ def handler(x):
                             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                             s.connect(('192.168.0.'+str(req_sf), 8000))
                             s.send(pkt)
-                        except:
-                            print("Data-gw socket error")
+                        except Exception as e:
+                            print("Data-gw socket error", e)
                             wlan_s.close()
                             s.close()
                             led.value(0)
@@ -180,13 +177,14 @@ def handler(x):
     elif (len(x) > 20) and (x[2] == 2):  # the packet is a statistics packet
         try:
             (dev_id, leng, ptype, i, succeeded, retrans, dropped, rx, tx, rcrc) = struct.unpack("BBBiiiiff", x) # this must also be 27b long
-        except:
-            print("wrong stat packet format!")
+        except Exception as e:
+            print("wrong stat packet format!", e)
         else:
             if dev_id not in stats:
                 print("Received stats from", dev_id)
                 print('Node %d: %d %d %d %d %f %f' % (dev_id, i, succeeded, retrans, dropped, rx, tx))
                 stats.append(dev_id)
+    lora.standby()
     lora.set_payload_length(27)
     lora.recv()
 
@@ -196,8 +194,9 @@ def receive_req():
     registered = []
     lora.on_recv(handler)
     lora.recv()
+    lora.set_payload_length(27)
     while (exp_is_running):
-        idle()
+        pass
     print("Stopped accepting join requests!")
     led.value(0)
 
@@ -216,15 +215,14 @@ def exp_start():
         conn, addr = wlan_s.accept()
         data = conn.recv(512)
         data = data.decode('utf-8')
-        if (len(data) > 10):
+        if (len(data) > 2):
             try:
-                (init, ip, pkts) = data.split(":")
+                (init, pkts) = data.split(":")
                 if (init == "init"):
                     exp_is_running = 0
                     print("---------------------------------")
                     print("New experiment with", pkts, "packets")
                     led.value(1)
-                    # msg = ip+":"+pkts
                     msg = pkts
                     time.sleep(1)
                     exp_is_running = 1
@@ -236,9 +234,10 @@ def exp_start():
                     oled_lines("TS-LoRa", "Requests GW", wlan.ifconfig()[0], "Sent new exp")
                     lora.standby()
                     stats = []
-            except:
-                print("wrong packet format!")
+            except Exception as e:
+                print("wrong packet format!", e)
 
-#exp_start()  # run a wlan server to initiate a new experiment via the network server (RPi)
-# _thread.start_new_thread(receive_req, ())
+# uncomment the following line to initiate new experiments via the network server (RPi's init_exp.py script)
+# exp_start()
+# OR bypass the init script by uncommenting the following line
 receive_req()

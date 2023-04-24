@@ -120,7 +120,7 @@ def join_request():
         start = chrono.read_ms()
         lora.on_recv(req_handler)
         lora.recv()
-        while(chrono.read_ms() - start < 5000):
+        while(chrono.read_ms() - start < 8000):
             if(join_accept == 1):
                 break
         lora.sleep()
@@ -135,10 +135,10 @@ def join_request():
     # AppSKey generation
     text = struct.pack("BIiI", 0x02, JoinNonce, 0xFFFFFF, DevNonce)
     while (len(text) % 16 != 0):
-        text = "".join([text,"0"])
+        text = b''.join([text, 0x00])
     cipher_en = aes(AppKey, 1)
     AppSKey = cipher_en.encrypt(text)
-    # print("Length of the text and AppSKey:", len(text), len(AppSKey))
+    print("Length of AppSKey:", len(AppSKey), ubinascii.hexlify(AppSKey).decode())
     # slot generation
     text = "".join([hex(DevAddr)[2:], hex(DevEUI)[2:]])
     thash = uhashlib.sha256()
@@ -521,7 +521,7 @@ lora.set_preamble_length(10)
 lora.set_crc(False)
 lora.set_implicit(False)
 index = 0
-S = 1000
+S = 251
 active_rx = 0.0
 active_tx = 0.0
 proc_gw = 4000 # gw default (minimum) processing time (us)
