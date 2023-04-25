@@ -8,17 +8,14 @@
 import socket
 import struct
 import network
-import binascii
 import ubinascii
 import time
-import uos
 import _thread
 import uerrno
 import sys
-from machine import SoftI2C, Pin, SPI, idle
+from machine import SoftI2C, Pin, SPI
 from lora import LoRa
 import ssd1306
-from time import sleep
 import math
 from chrono import Chrono
 from cryptolib import aes
@@ -147,9 +144,8 @@ def handler(recv_pkg):
             crc = ubinascii.crc32(msg)
             if (len(msg) == packet_size) and (crc == rcrc): # format check
                 received += 1
-                print("Received data from:", dev_id)
                 msg = aes(KEY[dev_id], 1).encrypt(msg)
-                # print("Decrypted text:", msg)
+                print("Received data from:", dev_id, msg.decode())
                 acks.append(str(dev_id))
             else:
                 print("Wrong packet size or CRC error")
@@ -191,14 +187,9 @@ def receive_data():
         lora.on_recv(handler)
         lora.recv()
         while ((chrono.read_us() - round_start) < data_length):
-            idle()
+            pass
         print(received, "packet(s) received")
-        #rec_lasted = chrono.read_us()-rec_start
-        #if (rec_lasted < data_length):
-        #    print("I'll sleep a bit to align with the round length")
-        #    time.sleep_us(int(data_length-rec_lasted))
         print("Receiving lasted (ms):", (chrono.read_us()-rec_start)/1000)
-        #print("...should last (ms):", data_length/1000)
         proc_t = chrono.read_us()
         ack_msg = ""
         for n in range(int(index)+1):
@@ -232,7 +223,6 @@ def receive_data():
         lora.send(pkg)
         led.value(0)
         time.sleep_ms(100) # node time after sack
-        #print("time after data (ms):", (chrono.read_us()-proc_t)/1000)
         print("round lasted (ms):", (chrono.read_us()-round_start)/1000)
         i += 1
 

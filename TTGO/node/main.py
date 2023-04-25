@@ -208,10 +208,10 @@ def sync():
 
 def generate_msg():
     global msg
-    msg = random.getrandbits(32) # just a random 4-byte int
-    msg = hex(msg)[2:]
+    msg = ""
     while (len(msg) < packet_size):
-        msg = msg + msg
+        r = random.getrandbits(32) # just a random 4-byte int
+        msg += hex(r)[2:]
     while (len(msg) > packet_size): # just correct the size
         msg = msg[:-1]
 
@@ -329,16 +329,16 @@ def start_transmissions():
         print("All data slots length (ms):", data_length/1000)
         t = int(my_slot*(airt + 2*guard) + guard - proc_and_switch) # sleep time before transmission
         time.sleep_us(t)
-        _thread.start_new_thread(generate_msg, ())
-        msg = aes(AppSKey, 1).decrypt(msg)
-        crc = ubinascii.crc32(msg)
+        en_msg = aes(AppSKey, 1).decrypt(msg)
+        crc = ubinascii.crc32(en_msg)
         # led.value(1)
         on_time = chrono.read_us()
-        pkg = struct.pack('BB%dsI' % len(msg), MY_ID, len(msg), msg, crc)
-        print("Sending a packet of", len(b''.join([int(MY_ID).to_bytes(1, 'big'), int(len(msg)).to_bytes(1, 'big'), msg, crc.to_bytes(4, 'big')])), "bytes at (ms):", (chrono.read_us()-start)/1000)
+        pkg = struct.pack('BB%dsI' % len(msg), MY_ID, len(msg), en_msg, crc)
+        print("Sending a packet of", len(b''.join([int(MY_ID).to_bytes(1, 'big'), int(len(en_msg)).to_bytes(1, 'big'), en_msg, crc.to_bytes(4, 'big')])), "bytes at (ms):", (chrono.read_us()-start)/1000)
         lora.send(pkg)
         # led.value(0)
         lora.sleep()
+        print("Sent:", msg)
         oled_list.append("Uplink sent!")
         oled_lines()
         active_tx += (chrono.read_us() - on_time)
@@ -347,6 +347,7 @@ def start_transmissions():
             print("Cannot align clock!")
             t = 0
         print("Sleep time after data (ms):", t/1000, "/ round correction (ms):", clock_correct/1000)
+        _thread.start_new_thread(generate_msg, ()) # this will take some time to be executed
         time.sleep_us(t)
         sack_rcv = 0
         clock_correct = 0
@@ -369,7 +370,6 @@ def start_transmissions():
             print("...ACK data =", acks)
             bin_ack = ""
             while(len(acks) > 0):
-                # ack_ = str(bin(int(acks[:1], 16)))[2:]
                 try:
                     bin_ack += zfill(bin(int(acks[:1], 16))[2:], index if index<4 else 4)
                 except:
@@ -526,12 +526,7 @@ active_rx = 0.0
 active_tx = 0.0
 proc_gw = 4000 # gw default (minimum) processing time (us)
 (sack_rcv, sack_bytes) = (0, 0) # will be filled later
-msg = random.getrandbits(32) # just a random 4-byte int
-msg = hex(msg)[2:]
-while (len(msg) < packet_size):
-    msg = msg + msg
-while (len(msg) > packet_size): # just correct the size
-    msg = msg[:-1]
+generate_msg()
 print("Packet size =", len(msg), "bytes")
 (retrans, succeeded, dropped) = (0, 0, 0)
 freqs = [868.1, 868.3, 868.5, 867.1, 867.3, 867.5, 867.7, 867.9, 869.525]
