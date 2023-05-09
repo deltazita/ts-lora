@@ -4,7 +4,7 @@
 # Distributed under GNU GPLv3
 #
 # Tested with Heltec LoRa v2 433MHz SX1278 and LILYGO TTGO 868/915MHz SX1276
-# micropython v1.19.1 for ESP32 LILYGO
+# micropython v1.20.0 for ESP32 LILYGO
 
 import os
 import sys
@@ -21,7 +21,6 @@ import ssd1306
 import network
 import random
 from cryptolib import aes
-import gc
 
 ### FUNCTIONS ###
 
@@ -66,7 +65,7 @@ def req_handler(recv_pkg):
     global JoinNonce
     global oled_list
     global join_accept
-    # print(recv_pkg)
+    print(recv_pkg)
     if (len(recv_pkg) > 2):
         recv_pkg_len = recv_pkg[1]
         recv_pkg_id = recv_pkg[0]
@@ -81,7 +80,6 @@ def req_handler(recv_pkg):
                 oled_lines()
             else:
                 print("...join accept packet FAILED")
-    lora.recv()
 
 def join_request():
     global lora
@@ -95,7 +93,13 @@ def join_request():
     global AppSKey
     global oled_list
     global join_accept
-    lora.set_spreading_factor(12)
+    # lora.set_implicit(True)
+    # lora.set_crc(False)
+    # lora.set_preamble_length(10)
+    # lora.set_payload_length(14)
+    # lora.set_coding_rate(5)
+    lora.sleep()
+    lora.set_spreading_factor(j_sf)
     lora.set_frequency(freqs[-1])
     while (True):
         join_accept = 0
@@ -103,24 +107,19 @@ def join_request():
         crc = ubinascii.crc32(rmsg)
         print(MY_ID, "1", hex(DevEUI), hex(JoinEUI), DevNonce, my_sf, crc)
         pkg = struct.pack("BBQQIBI", MY_ID, 0x01, DevEUI, JoinEUI, DevNonce, my_sf, crc)
-        lora.standby()
-        lora.set_implicit(True)
         led.value(1)
         start = chrono.read_ms()
         lora.send(pkg)
-        lora.sleep()
         led.value(0)
         active_tx += chrono.read_ms()-start
         print("Join request sent!")
         oled_list.append("Join req. sent")
         oled_lines()
-        lora.set_coding_rate(5)
-        lora.set_payload_length(14) # implicit header
-        time.sleep_ms(100)
         start = chrono.read_ms()
         lora.on_recv(req_handler)
         lora.recv()
         while(chrono.read_ms() - start < 8000):
+            time.sleep(0.1)
             if(join_accept == 1):
                 break
         lora.sleep()
@@ -190,8 +189,8 @@ def sync():
     global oled_list
     lora.set_spreading_factor(my_sf)
     lora.set_frequency(freqs[my_sf-7])
-    lora.set_implicit(False) # switch back to explicit mode without CRC
-    lora.set_preamble_length(8)
+    # lora.set_implicit(False) # switch back to explicit mode without CRC
+    # lora.set_preamble_length(8)
     sync_start = chrono.read_us()
     sack_rcv = 0
     index = 0
@@ -258,7 +257,7 @@ def sack_handler(recv_pkg):
             except:
                 print("...Could not unpack!")
 
-def start_transmissions():
+def start_transmissions(_pkts):
     global lora
     global index
     global active_tx
@@ -317,7 +316,7 @@ def start_transmissions():
         print(".", end='')
         pass
     print("\n")
-    while(1):
+    while(_pkts == -1 or i <= _pkts):
         print(i, "----------------------------------------------------")
         chrono.reset()
         start = chrono.read_us()
@@ -432,7 +431,7 @@ def start_transmissions():
     leng = len(bytes(MY_ID+(i-1)+(0x02)+succeeded+retrans+dropped))+8
     pkg = struct.pack("BBBiiiiff", MY_ID, leng, 0x02, int(i-1), int(succeeded), int(retrans),
                         int(dropped), active_rx/1e6, active_tx/1e6) # 27 bytes
-    lora.set_spreading_factor(12)
+    lora.set_spreading_factor(j_sf)
     lora.set_frequency(freqs[-1])
     for x in range(3): # send it out 3 times
         led.value(1)
@@ -442,27 +441,28 @@ def start_transmissions():
     led.value(0)
 
 def init_handler(recv_pkg):
-    print(recv_pkg)
+    global lora
+    global chrono
     if (len(recv_pkg) > 2):
         recv_pkg_id = recv_pkg[0]
-        recv_pkg_len = recv_pkg[1]
         if (int(recv_pkg_id) == 1):
-            dev_id, leng, ippkts = struct.unpack('BB%ds' % recv_pkg_len, recv_pkg)
-            ippkts = ippkts.decode('utf-8')
-            pkts = int(ippkts)
+            dev_id, pkts = struct.unpack('Bi', recv_pkg)
             print("Starting experiment with", pkts, "packets")
+            oled_list.append("New experiment")
+            oled_lines()
             if (my_slot == -1):
                 random_sleep(20)
             led.value(1)
-            # uncomment the following 2 lines if you use OTA
-            # print("OTA over WLAN (IP):", ip)
-            # OTA_update(ip)
+            lora.sleep()
             chrono.start()
             join_start = chrono.read_us()
             start_transmissions(pkts)
             print("...experiment done!")
-            lora.set_spreading_factor(12)
+            # lora.set_crc(True)
+            lora.set_spreading_factor(j_sf)
             lora.set_frequency(freqs[-1])
+            lora.on_recv(init_handler)
+            lora.recv()
             print("ready for a new one...")
 
 def oled_lines():
@@ -516,10 +516,10 @@ my_mac = " "
 DevAddr = ""
 get_id()
 
-(my_sf, my_bw_plain, guard, my_slot, packet_size) = (0x07, 125, 15000, -1, 16) # default values
-lora.set_preamble_length(10)
-lora.set_crc(False)
-lora.set_implicit(False)
+(my_sf, j_sf, my_bw_plain, guard, my_slot, packet_size) = (0x07, 10, 125, 15000, -1, 16) # default values
+# lora.set_preamble_length(8)
+# lora.set_crc(False)
+# lora.set_implicit(False)
 index = 0
 S = 251
 active_rx = 0.0
@@ -551,18 +551,20 @@ AppKey = AK[int(MY_ID)-11]
 DevNonce = 0x00000001 # 32 bit
 chrono = Chrono()
 oled_lines()
-
-# uncomment the following two lines if you don't want to use the init_exp.py script (additional changes on gw_req are needed)
 chrono.start()
-start_transmissions()
+pkts = -1
+
+def commands():
+    global lora
+    print("Waiting for commands...")
+    oled_list.append("Waiting for commands")
+    oled_lines()
+    lora.set_spreading_factor(j_sf)
+    lora.set_frequency(freqs[-1])
+    lora.recv()
+    lora.on_recv(init_handler)
+
+# uncomment the following line if you don't want to use the init_exp.py script (additional changes on gw_req are required)
+start_transmissions(pkts)
 #
-print("Waiting for commands...")
-oled_list.append("Waiting for commands")
-oled_lines()
-lora.set_spreading_factor(12)
-lora.set_frequency(freqs[-1])
-lora.on_recv(init_handler)
-lora.recv()
-idle()
-while(True):
-    pass
+# commands()

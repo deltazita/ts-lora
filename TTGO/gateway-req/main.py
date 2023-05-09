@@ -3,7 +3,7 @@
 #
 # Distributed under GNU GPLv3
 #
-# Tested with Heltec LoRa v2 433MHz SX1278 and micropython v1.19.1 for ESP32 LILYGO
+# Tested with Heltec LoRa v2 433MHz SX1278 and micropython v1.20.0 for ESP32 LILYGO
 
 import socket
 import struct
@@ -56,6 +56,7 @@ spi.init()
 lora = LoRa( spi, cs=Pin(CS, Pin.OUT), rx=Pin(RX, Pin.IN), )
 
 MY_ID = 0x01 # do not change this
+j_sf = 10
 freqs = [868.1, 868.3, 868.5, 867.1, 867.3, 867.5, 867.7, 867.9, 869.525]
 # freqs = [433.175, 433.325, 433.475, 433.625, 433.775, 433.925, 434.075, 434.225] # 433.175 - 434.665 according to heltec
 index = {}
@@ -78,14 +79,13 @@ if not wlan.isconnected():
 print(wlan.ifconfig())
 oled_lines("TS-LoRa", "Requests GW", wlan.ifconfig()[0], " ")
 
-lora.standby()
-lora.set_spreading_factor(12)
+lora.set_spreading_factor(j_sf)
 lora.set_frequency(freqs[-1])
-lora.set_preamble_length(10)
-lora.set_crc(False)
-lora.set_implicit(True)
-lora.set_coding_rate(5)
-lora.set_payload_length(27) # implicit header is on
+# lora.set_implicit(True)
+# lora.set_preamble_length(10)
+# lora.set_crc(False)
+# lora.set_coding_rate(5)
+# lora.set_payload_length(27) # implicit header is on
 
 # wait for requests
 for i in range(7, 13):
@@ -108,7 +108,6 @@ def handler(x):
             print("Received a join-request from:", dev_id, ptype, hex(mac), hex(JoinEUI), DevNonce, req_sf, rcrc)
         except Exception as e:
             print("could not unpack!", e)
-            # exp_is_running = 0
             led.value(0)
         else:
             rmsg = b''.join([b'1', mac.to_bytes(8, 'big'), JoinEUI.to_bytes(8, 'big'), DevNonce.to_bytes(4, 'big'), int(req_sf).to_bytes(1, 'big')])
@@ -140,7 +139,6 @@ def handler(x):
                 else:
                     rmsg = b''.join([int(dev_id).to_bytes(1, 'big'), slot.to_bytes(1, 'big'), mac.to_bytes(8, 'big'), JoinNonce[dev_id].to_bytes(4, 'big'), JoinEUI.to_bytes(8, 'big'), int(DevNonce).to_bytes(4, 'big')])
                     crc = ubinascii.crc32(rmsg)
-                    # print(str(dev_id)+" "+str(slot)+" "+hex(mac)+" "+str(JoinNonce[dev_id])+" "+hex(JoinEUI)+" "+str(DevNonce)+" "+hex(crc))
                     pkg = struct.pack('BBQIQII', int(dev_id), slot, int(mac), JoinNonce[dev_id], int(JoinEUI), DevNonce, crc)
                     wlan_s.send(pkg)
                     msg = wlan_s.recv(512)
@@ -176,7 +174,7 @@ def handler(x):
                             led.value(0)
     elif (len(x) > 20) and (x[2] == 2):  # the packet is a statistics packet
         try:
-            (dev_id, leng, ptype, i, succeeded, retrans, dropped, rx, tx, rcrc) = struct.unpack("BBBiiiiff", x) # this must also be 27b long
+            (dev_id, leng, ptype, i, succeeded, retrans, dropped, rx, tx) = struct.unpack("BBBiiiiff", x) # this must also be 27b long
         except Exception as e:
             print("wrong stat packet format!", e)
         else:
@@ -184,18 +182,28 @@ def handler(x):
                 print("Received stats from", dev_id)
                 print('Node %d: %d %d %d %d %f %f' % (dev_id, i, succeeded, retrans, dropped, rx, tx))
                 stats.append(dev_id)
-    lora.standby()
-    lora.set_payload_length(27)
+    # lora.standby()
+    # lora.set_implicit(True)
+    # lora.set_preamble_length(10)
+    # lora.set_crc(False)
+    # lora.set_coding_rate(5)
+    # lora.set_payload_length(27)
+    lora.on_recv(handler)
     lora.recv()
 
 def receive_req():
     global lora
     global registered
     registered = []
+    # lora.set_implicit(True)
+    # lora.set_preamble_length(10)
+    # lora.set_payload_length(27)
+    # lora.set_crc(False)
+    # lora.set_coding_rate(5)
     lora.on_recv(handler)
     lora.recv()
-    lora.set_payload_length(27)
     while (exp_is_running):
+        time.sleep(0.1)
         pass
     print("Stopped accepting join requests!")
     led.value(0)
@@ -204,6 +212,7 @@ def receive_req():
 def exp_start():
     global stats
     global exp_is_running
+    global lora
     host = wlan.ifconfig()[0]
     port = 8000
     wlan_s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -223,16 +232,17 @@ def exp_start():
                     print("---------------------------------")
                     print("New experiment with", pkts, "packets")
                     led.value(1)
-                    msg = pkts
                     time.sleep(1)
                     exp_is_running = 1
-                    _thread.start_new_thread(receive_req, ())
-                    print("Ready to accept new join requests!")
-                    time.sleep(1)
-                    pkg = struct.pack('BB%ds' % len(msg), MY_ID, len(msg), msg)
+                    lora.set_implicit(False)
+                    lora.set_preamble_length(8)
+                    # lora.set_crc(True)
+                    pkg = struct.pack('Bi', MY_ID, int(pkts))
                     lora.send(pkg)
                     oled_lines("TS-LoRa", "Requests GW", wlan.ifconfig()[0], "Sent new exp")
-                    lora.standby()
+                    time.sleep(1)
+                    _thread.start_new_thread(receive_req, ())
+                    print("Ready to accept new join requests!")
                     stats = []
             except Exception as e:
                 print("wrong packet format!", e)
