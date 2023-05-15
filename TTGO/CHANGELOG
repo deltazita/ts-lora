@@ -1,3 +1,7 @@
+v1.1.4_TTGO (15/05/2023)
+- removed implicit mode due to incompatibility issues (left the code in comments)
+- fixed a bug with SACK packets with more than 4 EDs
+
 v1.1.3_TTGO (24/04/2023)
 - fixed encryption
 - other minor fixes

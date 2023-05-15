@@ -199,9 +199,9 @@ def receive_data():
                     ack_msg = ack_msg+"1"
                 else:
                     ack_msg = ack_msg+"0"
-        if (ack_msg == ""):
-            ack_msg += "0"
         acks = ""
+        while(len(ack_msg) % 4 != 0):
+            ack_msg = "0"+ack_msg
         while(len(ack_msg) > 4):
             ack_ = ack_msg[:4]
             ack_msg = ack_msg[4:]

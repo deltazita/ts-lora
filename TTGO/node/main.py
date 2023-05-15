@@ -44,9 +44,6 @@ def random_sleep(max_sleep):
     t = random.getrandbits(32)
     time.sleep(1+t%max_sleep) # wake-up at a random time
 
-def zfill(s, width):
-    return '{:0>{w}}'.format(s, w=width)
-
 # this is borrowed from LoRaSim (https://www.lancaster.ac.uk/scc/sites/lora/lorasim.html)
 def airtime_calc(sf,cr,pl,bw):
     H = 0        # implicit header disabled (H=0) or not (H=1)
@@ -101,6 +98,7 @@ def join_request():
     lora.sleep()
     lora.set_spreading_factor(j_sf)
     lora.set_frequency(freqs[-1])
+    attempts = 0
     while (True):
         join_accept = 0
         rmsg = b''.join([b'1', DevEUI.to_bytes(8, 'big'), JoinEUI.to_bytes(8, 'big'), DevNonce.to_bytes(4, 'big'), my_sf.to_bytes(1, 'big')])
@@ -126,7 +124,8 @@ def join_request():
         active_rx += chrono.read_ms()-start
         if (join_accept == 0):
             print("No answer received!")
-            random_sleep(5)
+            attempts += 1
+            random_sleep(5*attempts)
             DevNonce += 0x00000001
         else:
             break
@@ -368,19 +367,19 @@ def start_transmissions(_pkts):
         if (sack == 1): # if a SACK has been received
             print("...ACK data =", acks)
             bin_ack = ""
-            while(len(acks) > 0):
-                try:
-                    bin_ack += zfill(bin(int(acks[:1], 16))[2:], index if index<4 else 4)
-                except:
-                    print("...Bad ack format!")
-                else:
-                    acks = acks[1:]
-            # print(bin_ack)
+            bin_ack = bin(int(acks, 16))[2:]
+            while len(bin_ack) < index:
+                bin_ack = "0"+bin_ack
+            if len(bin_ack) > index:
+                bin_ack = bin_ack[-index:]
+            print("...binary:", bin_ack)
             if (bin_ack[my_slot] == "1"): # if the uplink has been delivered
                 succeeded += 0x00000001
                 repeats = 0
                 print("...ACK OK!")
-                oled_list.append("OK ("+str(succeeded)+"/"+str(i)+")")
+                oled_list.append("OK ("+str(succeeded)+"/"+str(i)+"//"+str(retrans)+")")
+                oled_list.append("Trx:"+str(active_rx/1e6))
+                oled_list.append("Ttx:"+str(active_tx/1e6))
                 oled_lines()
             else:
                 print("I will repeat the last packet")
@@ -469,7 +468,7 @@ def oled_lines():
     global oled_list
     oled.fill(0)
     oled.text("TS-LoRa "+"SF"+str(my_sf)+" ID"+str(MY_ID), 0, 0)
-    l = 13
+    l = 11
     if len(oled_list) > 6:
         oled_list.pop(0)
     for line in oled_list:
@@ -516,7 +515,7 @@ my_mac = " "
 DevAddr = ""
 get_id()
 
-(my_sf, j_sf, my_bw_plain, guard, my_slot, packet_size) = (0x07, 10, 125, 15000, -1, 16) # default values
+(my_sf, j_sf, my_bw_plain, guard, my_slot, packet_size) = (0x09, 10, 125, 15000, -1, 16) # default values
 # lora.set_preamble_length(8)
 # lora.set_crc(False)
 # lora.set_implicit(False)
