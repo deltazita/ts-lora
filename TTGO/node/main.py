@@ -337,7 +337,7 @@ def start_transmissions(_pkts):
         # led.value(0)
         lora.sleep()
         print("Sent:", msg)
-        oled_list.append("Uplink sent!")
+        oled_list.append("Uplink sent! s"+str(my_slot))
         oled_lines()
         active_tx += (chrono.read_us() - on_time)
         t = int(data_length - (chrono.read_us() - start) + proc_gw + clock_correct - 2*ci - misses*guard) # wake up 2*ci before the sack transmission
@@ -377,7 +377,7 @@ def start_transmissions(_pkts):
                 succeeded += 0x00000001
                 repeats = 0
                 print("...ACK OK!")
-                oled_list.append("OK ("+str(succeeded)+"/"+str(i)+"//"+str(retrans)+")")
+                oled_list.append("OK ("+str(i)+"/"+str(succeeded)+"/"+str(retrans)+")")
                 oled_list.append("Trx:"+str(active_rx/1e6))
                 oled_list.append("Ttx:"+str(active_tx/1e6))
                 oled_lines()
@@ -394,6 +394,8 @@ def start_transmissions(_pkts):
                     dropped += 0x00000001
                     retrans -= 0x00000001
                     i += 0x00000001
+            if (misses > 0):
+                corrections = []
             misses = 0
             print("time after SACK (ms):", (chrono.read_us()-sack_rcv)/1000)
         else:
@@ -469,7 +471,7 @@ def oled_lines():
     oled.fill(0)
     oled.text("TS-LoRa "+"SF"+str(my_sf)+" ID"+str(MY_ID), 0, 0)
     l = 11
-    if len(oled_list) > 6:
+    while len(oled_list) > 6:
         oled_list.pop(0)
     for line in oled_list:
         oled.text(line, 0, l)
@@ -515,7 +517,7 @@ my_mac = " "
 DevAddr = ""
 get_id()
 
-(my_sf, j_sf, my_bw_plain, guard, my_slot, packet_size) = (0x09, 10, 125, 15000, -1, 16) # default values
+(my_sf, j_sf, my_bw_plain, guard, my_slot, packet_size) = (0x07, 10, 125, 15000, -1, 16) # default values
 # lora.set_preamble_length(8)
 # lora.set_crc(False)
 # lora.set_implicit(False)
