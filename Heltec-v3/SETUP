@@ -1,0 +1,37 @@
+Setup details
+
+Achitecture:
+
+-------   wifi    ----------
+| RPi |-----------| gw_req |
+-------           ----------
+192.168.0.254     192.168.0.1
+   |                   |     
+   |wifi               |LoRa 
+   |                   |     
+-----------  LoRa  --------- 
+| gw_data |--------| nodes |
+-----------        ---------
+192.168.0.7 (SF7)  
+192.168.0.8 (SF8)  
+...                
+192.168.0.12 (SF12)
+
+Recommended setup:
+- You will need: 1 Raspberry Pi or laptop/PC, 2 ESP32 devices to serve as 1-channel gateways, 1 or more native ESP32 devices
+- Flash all devices using the micropython firmware v1.19.1
+- The Raspberry Pi (RPi) serves as the Access Point for the GWs. You can follow the instructions here [1] how to setup a dhcpcd and a hostap server.
+- According to the current git code, the RPi must have an IP of 192.168.0.254/24 (you can change the IPs according to your needs).
+- Edit the RPi configuration files so that gw_req and gw_data are always assigned with an IP of .1/24 and .7-12/24, respectively. 
+  To do this, you will need the wifi mac address of the nodes. You can add multiple 1-channel gw_data gateways assigned with a different SF (LoRa) and IP address (wifi).
+- Edit the node id file (ids) and add the node MACs and your ids. IDs are not used in the protocol. They are used just for convenience.
+- Flash the corresponding code into the gateways (2 or more) and nodes (1 or more). 
+- Run the TCP server (net-server.py) script on the RPi.
+- Power-up the gateways. It would be helpful to have the gateways connected to a computer so you can see their standard output.
+- Power-up at least one node.
+- (optional) Run the init server script (init_exp.py) to initiate an experiment and collect statistics (default 192.168.0.1).
+  example: with "python3 init_exp.py 100" all the nodes will send out 100 packets and report statistics.
+
+Enjoy!
+
+[1] https://www.raspberrypi.org/documentation/configuration/wireless/access-point.md
