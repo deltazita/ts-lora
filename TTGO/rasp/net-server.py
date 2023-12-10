@@ -69,7 +69,7 @@ def handle_client_connection(client_socket):
             text = struct.pack("BIiI", 0x02, JoinNonce, 0xFFFFFF, DevNonce)
             while (len(text) % 16 != 0):
                 text = b''.join([text, 0x00])
-            encryptor = AES.new(AppKey, AES.MODE_ECB)
+            encryptor = AES.new(AppKey.encode("utf-8"), AES.MODE_ECB)
             AppSKey = encryptor.encrypt(text)
             msg = struct.pack("BBI%ds" % len(AppSKey), int(id), len(AppSKey), int(DevAddr,16), AppSKey)
             client_socket.send( msg )
